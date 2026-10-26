@@ -1,0 +1,3 @@
+#pragma once
+#define C2_WIFI_SSID "YOUR_ROUTER_SSID"
+#define C2_WIFI_PASSWORD "YOUR_ROUTER_PASSWORD"
