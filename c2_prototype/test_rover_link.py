@@ -34,6 +34,57 @@ class RoverTests(unittest.TestCase):
         self.assertTrue(self.link.state["enabled"])
         self.assertEqual(self.link.state["throttle"], 30)
 
+    def test_new_session_after_client_socket_closes(self):
+        self.link.close()
+        time.sleep(1.15)
+        self.assertTrue(self.mock.thread.is_alive())
+        self.link.connect("127.0.0.1", self.mock.port)
+        self.pump(.3)
+        self.assertTrue(self.link.ready(time.monotonic()))
+        self.assertFalse(self.mock.enabled)
+
+    def test_idle_loss_blocks_enable_but_recovers_without_reconnect(self):
+        self.mock.silent = True
+        self.pump(.55)
+        self.assertIsNone(self.link.fault)
+        self.assertFalse(self.link.ready(time.monotonic()))
+        self.assertIn('DEGRADED', self.link.summary(time.monotonic()))
+        with self.assertRaises(ValueError):
+            self.link.request_enable(time.monotonic())
+        self.mock.silent = False
+        self.pump(.15)
+        self.assertTrue(self.link.ready(time.monotonic()))
+        self.assertFalse(self.mock.enabled)
+        self.drive()
+
+    def test_repeated_old_ack_does_not_authorize_enable(self):
+        self.mock.drop_commands = True  # fresh telemetry, no command progress
+        self.pump(.55)
+        self.assertLess(time.monotonic()-self.link.last_rx, .1)
+        self.assertFalse(self.link.ready(time.monotonic()))
+        with self.assertRaises(ValueError):
+            self.link.request_enable(time.monotonic())
+
+    def test_delayed_arm_ack_keeps_original_send_time(self):
+        self.mock.reply_delay = .15
+        now = time.monotonic()
+        self.link.request_enable(now)
+        seq = self.link.pending_arm[0]
+        self.pump(.10, output(True,30))
+        self.assertFalse(any(op == 'DRIVE' for op, _, _ in self.mock.received))
+        self.pump(.65, output(True,30))
+        self.assertEqual(self.link.sent[seq], now)
+        self.assertIsNone(self.link.fault)
+        self.assertTrue(self.mock.enabled)
+
+    def test_excessive_arm_delay_fails_closed(self):
+        self.mock.reply_delay = .4
+        self.link.request_enable(time.monotonic())
+        self.pump(.6, output(True,30))
+        self.assertIsNotNone(self.link.fault)
+        self.assertFalse(self.mock.enabled)
+        self.assertFalse(any(op == 'DRIVE' for op, _, _ in self.mock.received))
+
     def test_handshake_drive_release_and_stop_reset(self):
         self.assertFalse(self.mock.enabled)
         self.assertFalse(any(op == "ARM" for op, _, _ in self.mock.received))
@@ -83,6 +134,39 @@ class RoverTests(unittest.TestCase):
         time.sleep(.08)
         self.assertFalse(self.mock.enabled)
         self.assertTrue(self.mock.stopped)
+
+    def test_idle_polling_is_bounded_and_does_not_enable(self):
+        before = sum(op == 'PING' for op, _, _ in self.mock.received)
+        self.pump(.43)
+        sent = sum(op == 'PING' for op, _, _ in self.mock.received)-before
+        self.assertGreaterEqual(sent, 2)
+        self.assertLessEqual(sent, 5)
+        self.assertTrue(self.link.ready(time.monotonic()))
+        self.assertFalse(self.mock.enabled)
+
+    def test_first_fault_keeps_evidence_after_stop_and_exports_json(self):
+        self.drive()
+        self.mock.silent = True
+        self.pump(.55, output(True, 30))
+        snapshot = dict(self.link.fault_snapshot)
+        self.assertIn('age', self.link.summary(time.monotonic()))
+        self.assertIn('MCU reason:', self.link.summary(time.monotonic()))
+        self.assertIsNotNone(snapshot['acknowledged_sequence'])
+        self.assertGreaterEqual(snapshot['acknowledged_command_age_ms'], 350)
+        self.assertIsNotNone(snapshot['last_mcu_state'])
+        self.pump(.12)
+        self.assertEqual(snapshot, self.link.fault_snapshot)
+        json.dumps(self.link.diagnostics(time.monotonic()), allow_nan=False)
+        json.dumps(snapshot, allow_nan=False)
+
+    def test_pc_stall_is_visible_in_fault_snapshot(self):
+        self.drive()
+        self.mock.silent = True
+        time.sleep(.4)
+        self.link.tick(output(True, 30))
+        self.assertGreaterEqual(self.link.fault_snapshot['pc_tick_gap_ms'], 350)
+        self.assertIn('PC update paused', self.link.fault)
+        self.assertFalse(self.mock.enabled)
 
     def test_invalid_and_foreign_packets_cannot_enable(self):
         for data in (b"MODE:TELEOP", b"255,255\n", b"garbage", packet("b"*16, 1, 1, "ARM")):

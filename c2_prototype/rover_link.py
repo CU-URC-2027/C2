@@ -40,7 +40,13 @@ class RoverLink:
         self.last_tx = -math.inf
         self.last_state_id = -1
         self.sent = OrderedDict()
+        self.sent_ops = OrderedDict()
+        self.last_tick = None
+        self.tick_gap_ms = 0.0
+        self.last_rejection = None
+        self.fault_snapshot = None
         self.fault = None
+        self.degraded = False
         self.pending_arm = None
         self.disarm_pending = False
         self.rtt_ms = None
@@ -79,8 +85,10 @@ class RoverLink:
         data = packet(self.session, self.seq, epoch, op, throttle, steering)
         self.sock.sendto(data, self.target)
         self.sent[self.seq] = now
+        self.sent_ops[self.seq] = op
         while len(self.sent) > 256:
-            self.sent.popitem(last=False)
+            old_seq, _ = self.sent.popitem(last=False)
+            self.sent_ops.pop(old_seq, None)
         self.last_tx = now
         return self.seq
 
@@ -93,6 +101,8 @@ class RoverLink:
     def request_enable(self, now):
         if not self.ready(now):
             raise ValueError("No fresh rover acknowledgment; connect/check firmware first")
+        if self.pending_arm:
+            raise ValueError("Enable confirmation already pending")
         if self.state["stopped"]:
             raise ValueError("Rover STOP is latched; Reset STOP and wait for confirmation")
         if self.state["enabled"] or self.disarm_pending:
@@ -121,6 +131,7 @@ class RoverLink:
                 return
             if address != self.target:
                 self.rejected += 1
+                self.last_rejection = "Reply from unexpected IP/port"
                 continue
             try:
                 row = json.loads(data)
@@ -160,26 +171,58 @@ class RoverLink:
                     self.disarm_pending = False
                 if self.pending_arm and row["seq"] >= self.pending_arm[0] and row["enabled"]:
                     self.pending_arm = None
-            except (ValueError, TypeError, KeyError, UnicodeError):
+            except (ValueError, TypeError, KeyError, UnicodeError) as exc:
                 self.rejected += 1
+                self.last_rejection = str(exc)
+
+    def diagnostics(self, now):
+        def age(stamp):
+            return round(max(0, now-stamp)*1000, 1) if math.isfinite(stamp) else None
+        state = self.state or {}
+        ack = state.get("seq")
+        return dict(target=list(self.target) if self.target else None,
+                    reply_age_ms=age(self.last_rx),
+                    acknowledged_command_age_ms=age(self.sent.get(ack, -math.inf)),
+                    last_sent_sequence=self.seq, last_sent_operation=self.sent_ops.get(self.seq),
+                    acknowledged_sequence=ack, acknowledged_operation=self.sent_ops.get(ack),
+                    pending_enable_sequence=self.pending_arm[0] if self.pending_arm else None,
+                    enable_wait_ms=age(self.pending_arm[1]) if self.pending_arm else None,
+                    pc_tick_gap_ms=round(self.tick_gap_ms, 1), rejected_packets=self.rejected,
+                    last_rejection=self.last_rejection,
+                    last_mcu_state=dict(state) if state else None)
+
+    def capture_fault(self, now):
+        if self.fault and self.fault_snapshot is None:
+            self.fault_snapshot = dict(fault=self.fault, **self.diagnostics(now))
 
     def tick(self, result, now=None):
         now = time.monotonic() if now is None else now
         if not self.sock:
             return
+        self.tick_gap_ms = 0.0 if self.last_tick is None else max(0, now-self.last_tick)*1000
+        self.last_tick = now
         try:
             self.receive(now)
             if self.state is None:
                 if now-self.started > 3:
-                    self.fault = "No guarded firmware reply; stock v6 has no acknowledgment. Install the companion sketch."
+                    self.fault = "No valid rover reply within 3 s; check current IP, UDP port, network and C2 GUARD firmware"
+                    self.capture_fault(now)
                 elif now-self.last_tx >= .25:
                     self.send("HELLO", now=now)
                 return
-            if not self.ready(now):
+            # A known-disabled endpoint can recover from idle jitter. Never use
+            # this exception during an ARM request or unconfirmed disarm.
+            idle = (not result["enabled"] and not self.state["enabled"]
+                    and self.pending_arm is None and not self.disarm_pending)
+            self.degraded = not self.ready(now)
+            if self.tick_gap_ms >= 350 and not idle:
+                self.fault = self.fault or f"PC update paused {self.tick_gap_ms:.0f} ms; reconnect and enable deliberately"
+            if not self.ready(now) and not idle:
                 self.fault = self.fault or "Rover acknowledgment stale; disconnect/reconnect and enable deliberately"
             if self.pending_arm and now-self.pending_arm[1] >= .25:
-                self.fault = "Rover did not confirm enable; reconnect before retrying"
+                self.fault = self.fault or "Rover did not confirm enable within 250 ms; reconnect before retrying"
             if self.fault:
+                self.capture_fault(now)  # Preserve evidence before STOP changes the last command.
                 if now-self.last_tx >= .05:
                     self.send("STOP", now=now)
                 self.pending_arm = None
@@ -191,10 +234,13 @@ class RoverLink:
                     self.send("STOP" if result["stop_latched"] else "DISARM", now=now)
                 elif result["stop_latched"] and not self.state["stopped"]:
                     self.send("STOP", now=now)
-                elif now-self.last_tx >= .05:
-                    self.send("PING", now=now)
+                elif now-self.last_tx >= .1:
+                    self.send("PING", now=now)  # 10 Hz idle polling; motion remains ~20 Hz.
             elif self.pending_arm:
-                pass  # No movement until ARM has been acknowledged.
+                # Confirm command progress while waiting; PING cannot move motors
+                # or feed the MCU drive watchdog. ARM still expires after 250 ms.
+                if now-self.last_tx >= .1:
+                    self.send("PING", now=now)
             elif self.state["enabled"] and not self.disarm_pending:
                 if now-self.last_tx >= .045:
                     t, s = map(int, result["legacy_drive_preview"].strip().split(","))
@@ -203,21 +249,36 @@ class RoverLink:
                 self.fault = "Rover disabled motion; re-establish connection before enabling"
         except (OSError, ValueError) as exc:
             self.fault = f"Rover link error: {type(exc).__name__}"
+        self.capture_fault(now)
 
     def summary(self, now):
         if not self.connected:
             return self.description
         if self.fault:
-            return "FAULT • " + self.fault
+            d = self.fault_snapshot or self.diagnostics(now)
+            state = d.get("last_mcu_state") or {}
+            return ("FAULT • " + self.fault + "\nAT FIRST FAULT (last received state, not current): "
+                    f"reply age {d['reply_age_ms']} ms / acknowledged-command age {d['acknowledged_command_age_ms']} ms (limit 350 ms)\n"
+                    f"TX #{d['last_sent_sequence']} {d['last_sent_operation']} / ACK #{d['acknowledged_sequence']} {d['acknowledged_operation']} / "
+                    f"enable wait {d['enable_wait_ms']} ms / PC loop gap {d['pc_tick_gap_ms']} ms\n"
+                    f"MCU reason: {state.get('reason', 'no state')} / enabled: {state.get('enabled', 'unknown')} / "
+                    f"rejected packets: {d['rejected_packets']} / last rejection: {d['last_rejection'] or 'none'}\n"
+                    f"MCU diagnostics: {json.dumps(state.get('diagnostics', {}), sort_keys=True)}")
         if self.state is None:
             return self.description
+        if self.pending_arm:
+            return "ENABLING - waiting for rover confirmation; motion is inhibited"
+        if not self.ready(now):
+            return ("CONNECTION DEGRADED • last confirmed state disabled; Enable blocked. "
+                    "Waiting for a fresh command acknowledgment. If this persists, reconnect/check rover Wi-Fi.")
         state = self.state
         counts = state.get("encoders")
         encoders = " / ".join("N/A" if v is None else str(v) for v in counts) if counts else "unavailable"
         return (f"ROVER {'ENABLED' if state['enabled'] else 'DISABLED'} • {state['reason']} • "
                 f"ack #{state['seq']} • age {(now-self.last_rx)*1000:.0f} ms • "
                 f"applied T {state['throttle']} / S {state['steering']} PWM\n"
-                f"Encoders FL/RL/FR/RR: {encoders} • counts, not signed speed")
+                f"Encoders FL/RL/FR/RR: {encoders} • counts, not signed speed\n"
+                f"MCU diagnostics: {json.dumps(state.get('diagnostics', {}), sort_keys=True)}")
 
     def close(self):
         if self.sock:

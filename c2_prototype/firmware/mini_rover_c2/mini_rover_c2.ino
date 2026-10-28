@@ -31,14 +31,8 @@ unsigned int localPort = 4210;     // UDP Port to listen on
 #include "wifi_credentials.h"
 #include "C2Guard.h"
 #include "c2_config.h"
-#if C2_ENABLE_GPS
-// REWIRE first: FL encoder D0 -> A2; OLED C button D1 -> A3.
-// Sonar is disabled in this configuration. Serial1 owns BOTH D0 and D1.
-#undef PIN_ENC_FL
-#undef PIN_OLED_BTN_C
-#define PIN_ENC_FL A2
-#define PIN_OLED_BTN_C A3
-#endif
+// A2 is the encoder input with GPS either on or off.
+static_assert(PIN_ENC_FL != PIN_SONAR_TRIG, "Encoder and sonar must not share a pin");
 
 // ================================================================================
 // WI-FI & UDP TELEOPERATION CONFIGURATION
@@ -48,6 +42,16 @@ char pass[] = C2_WIFI_PASSWORD;          // Wi-Fi Password
 unsigned int localPort = 4210;     // UDP Port to listen on
 
 WiFiUDP Udp;
+bool networkStartupReady = false;
+IPAddress startupIp(0,0,0,0);
+unsigned long lastWifiCheck = 0;
+bool wifiConnected = false;
+bool recoveringNetwork = false;
+unsigned long lastNetworkAttempt = 0;
+uint32_t networkRecoveries = 0;
+uint32_t maxLoopGapMs = 0, lastLoopAt = 0, lastUdpMs = 0, lastOledMs = 0;
+uint32_t rxPackets = 0, rejectedPackets = 0;
+const char* lastReject = "none";
 char packetBuffer[255];
 IPAddress roverIP;
 
@@ -135,16 +139,12 @@ void setup() {
 
   digitalWrite(PIN_MOTOR_STBY, LOW); // Drivers in Standby
 
-#if !C2_ENABLE_GPS
-  pinMode(PIN_SONAR_TRIG, OUTPUT);
-  pinMode(PIN_SONAR_ECHO, INPUT);
-#else
+#if C2_ENABLE_GPS
   Serial1.begin(9600);
 #endif
-
+  // Sonar is unimplemented; leave its reserved pins untouched.
   pinMode(PIN_OLED_BTN_A, INPUT_PULLUP);
-  pinMode(PIN_OLED_BTN_B, INPUT_PULLUP);
-  pinMode(PIN_OLED_BTN_C, INPUT_PULLUP);
+  Serial.println(F("[PIN MAP] C2-NET5-20261028: FL encoder A2; OLED button D10; sonar inactive"));
 
   // Encoder Interrupts
   pinMode(PIN_ENC_FL, INPUT_PULLUP);
@@ -152,12 +152,12 @@ void setup() {
   pinMode(PIN_ENC_FR, INPUT_PULLUP);
   pinMode(PIN_ENC_RR, INPUT_PULLUP);
 
-  attachInterrupt(digitalPinToInterrupt(PIN_ENC_FL), ISR_FL, RISING);
-  attachInterrupt(digitalPinToInterrupt(PIN_ENC_RL), ISR_RL, RISING);
-  attachInterrupt(digitalPinToInterrupt(PIN_ENC_FR), ISR_FR, RISING);
-  attachInterrupt(digitalPinToInterrupt(PIN_ENC_RR), ISR_RR, RISING);
   const int encoderPins[4]={PIN_ENC_FL,PIN_ENC_RL,PIN_ENC_FR,PIN_ENC_RR};
+  void (*const encoderISRs[4])()={ISR_FL,ISR_RL,ISR_FR,ISR_RR};
   for(int i=0;i<4;++i) {
+    // getIrqIndexFromPin reports allocated IRQ state, not pin capability.
+    // The R4 attach routine ignores pins without a hardware IRQ channel.
+    attachInterrupt(digitalPinToInterrupt(encoderPins[i]), encoderISRs[i], RISING);
     encoderAvailable[i]=getIrqIndexFromPin(encoderPins[i])>=0;
     if(!encoderAvailable[i]) {
       Serial.print(F("[ENCODER] No interrupt on pin ")); Serial.println(encoderPins[i]);
@@ -207,15 +207,43 @@ void setup() {
   
   WiFi.begin(ssid, pass);
   
-  // Wait for connection
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
+  // WL_CONNECTED can precede a usable DHCP address. Never bind UDP at 0.0.0.0.
+  const unsigned long networkStarted = millis();
+  IPAddress roverIp(0,0,0,0);
+  bool addressReady = false;
+  while (millis()-networkStarted < 30000UL) {
+    if (WiFi.status() == WL_CONNECTED) {
+      roverIp = WiFi.localIP();
+      addressReady = roverIp[0] > 0 && roverIp[0] < 224 && roverIp[0] != 127;
+      if (addressReady) break;
+    }
+    delay(500); // Setup only: motor outputs remain disabled.
     Serial.print(F("."));
   }
-  
-  Udp.begin(localPort);
-  Serial.println(F("\n[WIFI] Connected to Home Network!"));
-  Serial.print(F(" -> ROVER IP ADDR:  ")); Serial.println(WiFi.localIP());
+  if (!addressReady) {
+    Serial.println(F("\n[NETWORK FAULT] No usable IPv4 within 30 s. Motors remain disabled."));
+    Serial.println(F("Check router DHCP/client list and Wi-Fi credentials; reset to retry."));
+    if (oledConnected) {
+      display.clearDisplay(); display.setCursor(0,0);
+      display.println(F("NETWORK NOT READY")); display.println(F("No usable IP address"));
+      display.println(F("Check router; reset")); display.display();
+    }
+    return;
+  }
+  if (!Udp.begin(localPort)) {
+    Serial.println(F("\n[NETWORK FAULT] UDP listener failed. Motors disabled; reset to retry."));
+    if (oledConnected) {
+      display.clearDisplay(); display.setCursor(0,0);
+      display.println(F("UDP START FAILED")); display.println(F("Reset to retry")); display.display();
+    }
+    return;
+  }
+  networkStartupReady = true;
+  startupIp = roverIp;
+  wifiConnected = true;
+  lastWifiCheck = millis();
+  Serial.println(F("\n[WIFI] Address acquired and UDP listener started."));
+  Serial.print(F(" -> ROVER IP ADDR:  ")); Serial.println(roverIp);
   Serial.print(F(" -> UDP PORT:       ")); Serial.println(localPort);
 
   Serial.println(F("=============================================="));
@@ -225,15 +253,56 @@ void setup() {
 // ================================================================================
 // MAIN LOOP
 // ================================================================================
+// Reconnection can block inside WiFiS3. This path is entered only after
+// outputs are disabled and the old command session has been invalidated.
+void recoverNetwork() {
+  c2.disable("NETWORK_RECOVERY", true); applyC2Drive();
+  if (millis()-lastNetworkAttempt < 5000UL) return;
+  lastNetworkAttempt = millis();
+  if (WiFi.status() != WL_CONNECTED) WiFi.begin(ssid, pass);
+  if (WiFi.status() != WL_CONNECTED) return;
+  IPAddress ip = WiFi.localIP();
+  if (ip[0] == 0 || ip[0] >= 224 || ip[0] == 127) return;
+  Udp.stop();
+  if (!Udp.begin(localPort)) return;
+  startupIp = ip;
+  wifiConnected = networkStartupReady = true;
+  recoveringNetwork = false;
+  lastWifiCheck = millis();
+  ++networkRecoveries;
+  Serial.print(F("[NETWORK] UDP restored, STOP latched; reconnect C2. IP: "));
+  Serial.println(startupIp);
+}
+
 void loop() {
-  c2.tick(millis());
-  applyC2Drive();
-  if (WiFi.status() != WL_CONNECTED) {
-    c2.disable("WIFI_LOST");
-    applyC2Drive();
-    return; // Do not enable from any buffered packet while the link is down.
+  uint32_t loopNow = millis();
+  if (lastLoopAt && uint32_t(loopNow-lastLoopAt)>maxLoopGapMs)
+    maxLoopGapMs = uint32_t(loopNow-lastLoopAt);
+  lastLoopAt = loopNow;
+  if (recoveringNetwork) { recoverNetwork(); return; }
+  if (!networkStartupReady) {
+    c2.disable("NETWORK_STARTUP_FAILED", true); applyC2Drive();
+    recoveringNetwork = true;
+    return;
   }
+  c2.tick(millis()); applyC2Drive();
+  if (millis()-lastWifiCheck >= 100UL) {
+    wifiConnected = WiFi.status() == WL_CONNECTED;
+    lastWifiCheck = millis();
+    c2.tick(millis()); applyC2Drive();
+  }
+  if (!wifiConnected) {
+    c2.networkLost(); applyC2Drive();
+    haveC2Peer = false;
+    recoveringNetwork = true;
+    lastNetworkAttempt = millis();
+    Udp.stop();
+    Serial.println(F("[NETWORK] Wi-Fi lost; motors disabled, session invalidated. Retrying."));
+    return;
+  }
+  uint32_t udpStarted = millis();
   handleUdpPackets();
+  lastUdpMs = millis()-udpStarted;
   relayGps();
   c2.tick(millis());
   applyC2Drive();
@@ -242,10 +311,11 @@ void loop() {
   handleOledButtons();
   updateUrcLed();
 
-  // Refresh OLED telemetry every 150ms if display detected
-  if (oledConnected && (millis() - lastOledUpdate > 150)) {
+  // Lower-priority display work at 2 Hz; command watchdog remains unchanged.
+  if (oledConnected && !c2.enabled && (millis() - lastOledUpdate > 500)) {
     lastOledUpdate = millis();
     renderOledTelemetry();
+    lastOledMs = millis()-lastOledUpdate;
   }
 }
 
@@ -302,12 +372,15 @@ void sendC2State() {
     if(encoderAvailable[i]) snprintf(enc[i],sizeof(enc[i]),"%lu",(unsigned long)counts[i]);
     else strcpy(enc[i],"null"); // Unsupported interrupt is NOT a zero-speed measurement.
   }
-  char response[480];
+  char response[768];
   int n=snprintf(response,sizeof(response),
-    "{\"v\":1,\"type\":\"state\",\"fw\":\"c2-guard-v1\",\"session\":\"%s\",\"seq\":%lu,\"epoch\":%lu,\"state_id\":%lu,\"enabled\":%s,\"stopped\":%s,\"throttle\":%d,\"steering\":%d,\"encoders\":[%s,%s,%s,%s],\"reason\":\"%s\",\"watchdog_ms\":250}",
+    "{\"v\":1,\"type\":\"state\",\"fw\":\"c2-guard-v1\",\"session\":\"%s\",\"seq\":%lu,\"epoch\":%lu,\"state_id\":%lu,\"enabled\":%s,\"stopped\":%s,\"throttle\":%d,\"steering\":%d,\"encoders\":[%s,%s,%s,%s],\"reason\":\"%s\",\"watchdog_ms\":250,\"diagnostics\":{\"max_loop_gap_ms\":%lu,\"udp_ms\":%lu,\"oled_ms\":%lu,\"rx_packets\":%lu,\"rejected_packets\":%lu,\"last_reject\":\"%s\",\"network_recoveries\":%lu}}",
     c2.session,(unsigned long)c2.seq,(unsigned long)c2.epoch,(unsigned long)++c2StateId,
     c2.enabled?"true":"false",c2.stopped?"true":"false",c2.throttle,c2.steering,
-    enc[0],enc[1],enc[2],enc[3],c2.reason);
+    enc[0],enc[1],enc[2],enc[3],c2.reason,
+    (unsigned long)maxLoopGapMs, (unsigned long)lastUdpMs, (unsigned long)lastOledMs,
+    (unsigned long)rxPackets, (unsigned long)rejectedPackets, lastReject,
+    (unsigned long)networkRecoveries);
   if (n>0 && (size_t)n<sizeof(response)) {
     Udp.beginPacket(c2PeerIp,c2PeerPort);
     Udp.write((const uint8_t*)response,n);
@@ -317,11 +390,14 @@ void sendC2State() {
 }
 
 void handleUdpPackets() {
-  // Bounded work: do not allow a packet flood to starve the watchdog.
+  // Read a bounded batch before replying to routine PING/DRIVE traffic.
+  // WiFiS3 send operations are synchronous; replying per packet can build a queue.
+  bool replyNeeded=false;
   for (int budget=0; budget<4; ++budget) {
     c2.tick(millis()); applyC2Drive();
     int size=Udp.parsePacket();
-    if (!size) return;
+    if (!size) break;
+    ++rxPackets;
     IPAddress ip=Udp.remoteIP(); uint16_t port=Udp.remotePort();
     int n=Udp.read(packetBuffer,sizeof(packetBuffer)-1);
     if (n<=0) continue;
@@ -329,19 +405,27 @@ void handleUdpPackets() {
     if (size!=n) { while(Udp.available()) Udp.read(); continue; }
     // A legacy stop remains useful; no legacy packet can enable this firmware.
     if (!strcmp(packetBuffer,"MODE:ARRIVED\n") || !strcmp(packetBuffer,"MODE:ARRIVED")) {
-      c2.disable("LEGACY_STOP",true); applyC2Drive(); sendC2State(); continue;
+      c2.disable("LEGACY_STOP",true); applyC2Drive(); sendC2State(); return;
     }
     C2Packet p;
-    if (!c2parse(packetBuffer,(size_t)n,p)) continue;
+    if (!c2parse(packetBuffer,(size_t)n,p)) { ++rejectedPackets; lastReject="invalid_packet"; continue; }
     bool samePeer=haveC2Peer && ip==c2PeerIp && port==c2PeerPort;
-    if (strcmp(p.op,"HELLO") && !samePeer) continue;
-    if (haveC2Peer && !strcmp(p.session,c2.session) && !samePeer) continue;
+    if (strcmp(p.op,"HELLO") && !samePeer) { ++rejectedPackets; lastReject="wrong_peer"; continue; }
+    if (haveC2Peer && !strcmp(p.session,c2.session) && !samePeer) { ++rejectedPackets; lastReject="wrong_peer"; continue; }
     if (c2.accept(p,millis())) {
       c2PeerIp=ip; c2PeerPort=port; haveC2Peer=true;
       currentLedMode=c2.enabled?MODE_TELEOP:MODE_ARRIVED;
-      applyC2Drive(); sendC2State();
-    }
+      applyC2Drive();
+      replyNeeded=true;
+      if (strcmp(p.op,"PING") && strcmp(p.op,"DRIVE")) {
+        // Confirm transitions immediately; do not defer ARM behind queued drive.
+        sendC2State();
+        return;
+      }
+    } else { ++rejectedPackets; lastReject="guard_rejected"; }
   }
+  c2.tick(millis()); applyC2Drive();
+  if (replyNeeded) sendC2State();
 }
 
 void relayGps() {
@@ -411,20 +495,10 @@ void stopMotors() {
 // OLED BUTTON HANDLING
 // ================================================================================
 void handleOledButtons() {
-  static bool lastBtnA = HIGH, lastBtnB = HIGH, lastBtnC = HIGH;
+  static bool lastBtnA = HIGH;
   bool btnA = digitalRead(PIN_OLED_BTN_A);
-  bool btnB = digitalRead(PIN_OLED_BTN_B);
-  bool btnC = digitalRead(PIN_OLED_BTN_C);
-
-  if (btnA == LOW && lastBtnA == HIGH) oledScreenPage = (oledScreenPage + 3) % 4;
-  if (btnB == LOW && lastBtnB == HIGH) oledScreenPage = (oledScreenPage + 1) % 4;
-  if (btnC == LOW && lastBtnC == HIGH) {
-    if (currentLedMode == MODE_TELEOP) currentLedMode = MODE_AUTO;
-    else if (currentLedMode == MODE_AUTO) currentLedMode = MODE_ARRIVED;
-    else currentLedMode = MODE_TELEOP;
-  }
-
-  lastBtnA = btnA; lastBtnB = btnB; lastBtnC = btnC;
+  if (btnA == LOW && lastBtnA == HIGH) oledScreenPage = (oledScreenPage + 1) % 4;
+  lastBtnA = btnA;
 }
 
 // ================================================================================
@@ -440,7 +514,7 @@ void renderOledTelemetry() {
   switch (oledScreenPage) {
     case 0:
       display.setCursor(0, 0);  display.println(F("=== POWER & NETWORK ==="));
-      display.setCursor(0, 14); display.print(F("IP:  ")); display.println(WiFi.localIP());
+      display.setCursor(0, 14); display.print(F("IP:  ")); display.println(startupIp);
       display.setCursor(0, 26); display.print(F("Bat: ")); display.print(batteryVoltage, 2); display.println(F(" V"));
       display.setCursor(0, 38); display.print(F("LED: "));
       if (currentLedMode == MODE_TELEOP) display.println(F("BLUE (TELEOP)"));
@@ -476,18 +550,18 @@ void renderOledTelemetry() {
 #if C2_ENABLE_GPS
       display.setCursor(0, 0); display.println(F("GPS UART D0/D1 ACTIVE"));
       display.println(F("FL encoder -> A2"));
-      display.println(F("OLED button C -> A3"));
+      display.println(F("OLED button -> D10"));
       display.println(F("SONAR DISABLED"));
       break;
 #endif
       display.setCursor(0, 0); display.println(F("=== HC-SR04 SONAR ==="));
-      display.setCursor(0, 24); display.println(F("Sonar: Pins A2/A3 Configured"));
-      display.println(F("Ready for sensor plug-in"));
+      display.setCursor(0, 24); display.println(F("Sonar inactive (A3/A0)"));
+      display.println(F("FL encoder: A2 INPUT"));
       break;
   }
 
   display.drawFastHLine(0, 54, 128, SH110X_WHITE);
   display.setCursor(0, 56);
-  display.print(F("P")); display.print(oledScreenPage + 1); display.print(F("/4 | Btn A/B:Nav C:Mode"));
+  display.print(F("P")); display.print(oledScreenPage + 1); display.print(F("/4 | D10:Next page"));
   display.display();
 }

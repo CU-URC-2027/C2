@@ -12,6 +12,11 @@ No onboard Linux computer is required for this bench milestone. Later, the onboa
 computer will own the Arduino connection; the GUI's ROS adapter will replace this
 direct UDP adapter. Do not run the original Xbox sender at the same time as C2.
 
+**28 October pin-map revision:** use the complete updated sketch folder. Startup must
+show `C2-NET3-20261028`. A2 is always the front-left encoder input; sonar is inactive.
+GPS remains off by default. The frozen v0.4 zip uses the old map and is not suitable
+for the newly confirmed A2 encoder wiring without modification.
+
 ## 1. Install the companion sketch
 
 Matthew's [current repository](https://github.com/mafl8398/mini-rover-prototype)
@@ -45,11 +50,11 @@ voltage/current ratings and the actual motor load still need hardware confirmati
 | D2 / D4 / D3 | Left direction 1 / direction 2 / PWM |
 | D6 / D7 / D5 | Right direction 1 / direction 2 / PWM |
 | D8 | Both drivers' STBY |
-| D0 / D9 / D11 / D13 | Encoder inputs FL / RL / FR / RR |
+| A2 / D9 / D11 / D13 | Encoder inputs FL / RL / FR / RR |
 | D12 | NeoPixel |
-| A0 / D10 / D1 | OLED buttons A / B / C |
+| D10 | Single OLED next-page button |
 | A1 | Battery divider input |
-| A2 / A3 | Sonar pins reserved in the default configuration |
+| A3 / A0 | Sonar pins reserved, not initialized |
 | A4 / A5 | MPU6050 I2C; OLED uses Wire1/Qwiic |
 
 Left front/rear driver channels are paired, as are right front/rear. There are two

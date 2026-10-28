@@ -4,7 +4,7 @@ Command-and-control software for the CU URC rover team. C2 provides the operator
 interface for driving the chassis, requesting arm movement, and viewing rover
 telemetry, GPS and camera imagery.
 
-The current release is **prototype 0.4**, a Python desktop application for bench
+The current release is **prototype 0.5 / NET5**, a Python desktop application for bench
 testing. Development code is in [`c2_prototype/`](c2_prototype/).
 
 ## Current capabilities
@@ -85,17 +85,18 @@ Arm planning targets the **Nucleo-F446RE**, **DRV8825/NEMA 17 steppers**, and po
 
 ## Verification
 
-The recorded 0.4 verification completed **53 Python tests**: 34 unit/integration
-tests and 19 hidden-window GUI tests. Native C++ tests also exercised the firmware
-command guard. The home Uno GPS sketch and both R4 GPS configurations compiled.
+NET5 verification includes **42 unit/integration tests and 21 GUI checks**,
+plus native C++ guard checks, a delayed-reply localhost soak test, and Uno R4 WiFi
+compilation. The separate ROS workspace has 16 host-side tests; ROS runtime testing
+is still pending. See [NET5 release notes](docs/NET5_RECOVERY.md).
 
 Tests cover drive, release-to-zero, enable/disarm, STOP/reset, lost acknowledgments,
 receiver timeout, rejection of stale commands, input-vector/model movement, GPS
 parsing and the GUI controls. Run the Python suites from the repository root:
 
 ```text
-python -m unittest discover -s c2_prototype -v
-python c2_prototype/gui_regression.py
+python verify_all.py
+# Optional: --cxx PATH_TO_G++ --arduino-cli PATH_TO_ARDUINO_CLI --arduino-config PATH_TO_CONFIG
 ```
 
 These results do **not** establish physical motor stopping time, real router
@@ -105,6 +106,24 @@ STOP does not replace a physical emergency stop. Use the documented raised-wheel
 acceptance tests before broader operation.
 
 ## Development direction
+
+### This week's Ubuntu / ROS 2 migration
+
+The current bench app is `c2_prototype/` (NET5). The historical
+[0.4 archive](releases/c2-bench-v0.4.zip) predates the A2 encoder wiring fixes;
+do not upload that archived firmware to the current circuit.
+The new, separate [ROS 2 Jazzy workspace](ros2_ws/README.md) implements the C2
+operator/dashboard and OC chassis bridge with a loopback mock, guarded R4 transport,
+returned command state, encoder validity and capture export. Its host-side tests
+pass; building and running it under actual Ubuntu/ROS remains pending.
+
+- [This week's motor-test and encoder plan](docs/THIS_WEEK_PLAN.md)
+- [Ubuntu on this Windows laptop: impact and setup](docs/UBUNTU_SETUP.md)
+- [Engineering prompt and scope](docs/ENGINEERING_BRIEF.md)
+- [Migration verification and remaining checks](docs/MIGRATION_VERIFICATION.md)
+
+Ubuntu installation is currently paused. It is not needed to run the existing
+Windows bench test. Future ROS work belongs in `ros2_ws/`, leaving the fallback intact.
 
 The direct C2-to-Arduino connection is an interim prototype. The intended system
 routes C2 operator requests through an onboard computer that validates commands
@@ -121,3 +140,5 @@ Work in `c2_prototype/`, create a branch for changes, and include relevant test
 results in the pull request. Keep Wi-Fi credentials, captured GPS logs, virtual
 environments and generated build files out of commits. Firmware credential files
 must retain placeholders when shared.
+
+Local Wi-Fi settings now belong in ignored `c2_prototype/firmware/mini_rover_c2/wifi_credentials.local.h`. See the [NET5 setup and bench checklist](docs/NET5_RECOVERY.md).

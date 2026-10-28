@@ -27,7 +27,7 @@
 #define PIN_DRIVE_STBY     8
 
 // --- Wheel Encoders (Phase A C1 Interrupt Lines) ---
-#define PIN_ENC_FL         0   // Front Left Encoder C1
+#define PIN_ENC_FL         A2   // Front Left Encoder C1
 #define PIN_ENC_RL         9   // Rear Left Encoder C1
 #define PIN_ENC_FR         11  // Front Right Encoder C1
 #define PIN_ENC_RR         13  // Rear Right Encoder C1
@@ -35,12 +35,10 @@
 // --- Auxiliary & Telemetry ---
 #define PIN_NEOPIXEL       12  // URC Smart RGB LED Data Line
 #define PIN_BATTERY_SENSE  A1  // Battery Voltage Divider (10k / 3.3k)
-#define PIN_SONAR_TRIG     A2  // HC-SR04 Ultrasonic Trigger
-#define PIN_SONAR_ECHO     A3  // HC-SR04 Ultrasonic Echo
+#define PIN_SONAR_TRIG     A3  // HC-SR04 Ultrasonic Trigger
+#define PIN_SONAR_ECHO     A0  // HC-SR04 Ultrasonic Echo
 
-// --- OLED FeatherWing Tactile Buttons ---
-#define PIN_OLED_BTN_A     A0  // Top Button (Prev Screen)
-#define PIN_OLED_BTN_B     10  // Middle Button (Next Screen)
-#define PIN_OLED_BTN_C     1   // Bottom Button (Mode Action)
+// Single next-page button, matching Matthew v6.1.
+#define PIN_OLED_BTN_A     10
 
 #endif // PIN_MAP_H
