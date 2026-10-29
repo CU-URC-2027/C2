@@ -6,7 +6,7 @@ telemetry, GPS and camera imagery.
 
 ## Browser port development
 
-The `browser-ui-port` branch adds a local Python backend and browser UI alongside
+The `browser-ui-port` branch includes the reviewed NET5/backend update and adds a local Python backend and browser UI alongside
 the preserved desktop prototype. Start on a Mac with **Open C2.command**, or:
 
 ```sh
@@ -17,7 +17,7 @@ uv run python scripts/dev.py --open
 Open <http://127.0.0.1:8870>. It starts disconnected and disarmed. Use Connections
 → Connect local mock to exercise it without motors. The browser port includes
 drive/gamepad input, guarded UDP, arm previews, GPS tools, telemetry/log exports,
-four generated-demo/HTTP snapshot panes matching the desktop prototype. Python
+four generated-demo/HTTP snapshot panes, NET5 diagnostics/recovery, OC loopback/optional ROS 2 controls, and C2-owned feed priorities. Python
 3.12/3.13 and `uv` are required. Camera streaming/encoding design is outside this port.
 
 See [development setup](docs/DEVELOPMENT.md), [architecture](docs/ARCHITECTURE.md),

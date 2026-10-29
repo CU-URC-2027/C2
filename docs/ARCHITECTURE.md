@@ -1,6 +1,6 @@
 # Browser port implementation map
 
-October 27, 2026. Baseline: upstream main `6ae96d180f9383585edde504e78e7cc7ee3d8b50` (October 26). Scope is the existing desktop prototype's browser UI port. The user explicitly retains camera architecture/encoding decisions; this port implements no new streaming pipeline.
+October 28, 2026. Baseline: upstream NET5/recovery `971aec7` (merged from c2-net5-recovery); main remains `6ae96d1`. Scope is the existing desktop prototype's browser UI port. The user explicitly retains camera architecture/encoding decisions; this port implements no new streaming pipeline.
 
 ```mermaid
 flowchart LR
@@ -29,7 +29,7 @@ The browser sends input at 20 Hz only on a focused, visible Drive & arm page; st
 
 One browser owns controls. Other connected tabs can view, disarm or STOP. Claim, input-source change, focus loss, page change, disconnect and restart disarm. The first session acquires control; subsequent viewers must claim after release. Ownership is local UI coordination, not authentication.
 
-The original UDP protocol retains its session/epoch/sequence checks, enable acknowledgment, 350 ms feedback deadline and independent receiver watchdog. Browser/server checks do not replace MCU limits or physical emergency stop. The retained direct C2-to-MCU adapter remains the repository's bench prototype; final onboard supervisor/ROS 2 integration is not implemented.
+The original UDP protocol retains its session/epoch/sequence checks, enable acknowledgment, 350 ms feedback deadline and independent receiver watchdog. Browser/server checks do not replace MCU limits or physical emergency stop. The retained direct C2-to-MCU adapter remains the repository's bench prototype; the separate upstream ROS chassis interface is exposed through an optional ROS adapter and a host-policy OC loopback. DDS is not available or validated on this Mac.
 
 ## HTTP / WebSocket boundary
 
@@ -46,3 +46,7 @@ The launcher binds to `127.0.0.1`. Origin/host checks prevent cross-origin contr
 GGA position expires after 2.5 s; RMC speed does not revive a stale fix. Synthetic GPS is labeled; scatter describes precision rather than absolute accuracy. Reference comparison uses the original shared-origin, timestamp interpolation rules. The drive pose is a toy command model, not measured odometry. Arm jog is a preview and RC is emulated. Battery telemetry is unavailable.
 
 The original desktop and nested source copies remain unchanged. Refer to their `GPS_COMPARISON.md`, `ARM_INTERFACE_PLAN.md`, `ROS2_INTERFACE_PLAN.md` and firmware documentation for existing engineering context. This AI-assisted implementation requires substantive human review and hardware validation, plus the course's applicable disclosure/approval.
+
+## Current adapters
+
+`c2_web/onboard.py` wraps the upstream host Supervisor/ChassisBridge or the real OperatorNode when ROS and its built interfaces are installed. Only new browser input calls publish INPUT. Feedback ticks can repeat STOP/DISARM but cannot replay motion. `c2_web/priorities.py` owns a distinct configuration stream, revision/session, UDP publication at 2 Hz and receiver ACK tracking; see VIDEO_PRIORITIES.md. This configuration stream never changes drive-input freshness. The independent receiver is outside this repository.

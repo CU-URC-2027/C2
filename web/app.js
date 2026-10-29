@@ -1,7 +1,9 @@
+import {readController} from './controller.mjs';
+import {initPriorities,renderPriorities} from './priorities.mjs';
 const $ = id => document.getElementById(id);
 const fmt = (v, digits=2, suffix='') => Number.isFinite(v) ? `${v.toFixed(digits)}${suffix}` : '—';
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const text = (id, value) => { $(id).textContent = value; };
+const text = (id, value) => { const el=$(id),next=String(value);if(el.textContent===next)return;const top=el.scrollTop,left=el.scrollLeft;el.textContent=next;el.scrollTop=top;el.scrollLeft=left; };
 const pages = {
   drive: ['Drive & arm', 'Operator control, chassis feedback, and arm command preview.'],
   cameras: ['Cameras', 'The prototype’s four camera panes: generated demos and HTTP snapshots.'],
@@ -36,6 +38,7 @@ function send(action, data={}, acknowledge=true) {
 function act(action,data={}) { return send(action,data).catch(()=>{}); }
 function zero(disarm=true) {
   axes={throttle:0,steering:0,jog:0,deadman:false};keys.clear();pointerHold=false;pointerStick=null;
+  $('throttle-slider').value=$('steering-slider').value='0';
   $('stick').style.transform='translate(0,0)';$('deadman').classList.remove('pressed');
   if (client && ws?.readyState===WebSocket.OPEN && state?.owner===client) {
     input(); if(disarm) act('disarm');
@@ -79,11 +82,10 @@ setInterval(()=>{if(client && state?.owner===client)send('heartbeat',{},false).c
 function input() {
   if(!client || state?.owner!==client || page!=='drive' || document.hidden || !document.hasFocus())return;
   if(state.input_mode==='gamepad') {
-    const pad=[...(navigator.getGamepads?.()||[])].find(p=>p?.connected && p.mapping==='standard');
-    gamepadConnected=!!pad;
-    axes.throttle=pad ? -(pad.axes[1]||0) : 0;axes.steering=pad ? (pad.axes[2]??0) : 0;
-    axes.deadman=!!pad?.buttons[4]?.pressed;
-    text('gamepad-status',pad ? `${pad.id} · LB/L1 drive hold · left Y throttle / right X steer` : 'No standard mapped gamepad. Press a controller button to expose it to the browser.');
+    const config={stick:$('controller-stick').value,throttleAxis:Number($('raw-throttle').value),steeringAxis:Number($('raw-steering').value),holdButton:Number($('raw-hold').value)};
+    const pad=[...(navigator.getGamepads?.()||[])].find(p=>p?.connected&&(config.stick==='raw'||p.mapping==='standard'));
+    try{Object.assign(axes,readController(pad,config));gamepadConnected=true;text('gamepad-status',`${pad.id} · ${config.stick} mapping · axes ${pad.axes.map(v=>v.toFixed(2)).join(' / ')}`);}
+    catch(error){axes.throttle=axes.steering=0;axes.deadman=false;gamepadConnected=false;text('gamepad-status',error.message+' · press a controller button to expose it to the browser');}
   } else {
     gamepadConnected=false;
     if(['KeyW','KeyA','KeyS','KeyD'].some(k=>keys.has(k))){axes.throttle=(keys.has('KeyW')?1:0)-(keys.has('KeyS')?1:0);axes.steering=(keys.has('KeyD')?1:0)-(keys.has('KeyA')?1:0);}
@@ -91,6 +93,7 @@ function input() {
     text('gamepad-status',state.input_mode==='rc-demo'?'RC emulation only · no physical RC receiver connected.':'Drag the stick, or use W A S D. Hold Space to drive.');
   }
   send('input',{...axes,seq:++seq,gamepad_connected:gamepadConnected},false).catch(()=>{});
+  $('throttle-slider').value=axes.throttle;$('steering-slider').value=axes.steering;text('throttle-slider-value',fmt(axes.throttle));text('steering-slider-value',fmt(axes.steering));
   text('throttle-value',fmt(axes.throttle));text('steering-value',fmt(axes.steering));
   $('stick').style.transform=`translate(${axes.steering*65}px,${-axes.throttle*65}px)`;
   $('deadman').classList.toggle('pressed',axes.deadman);
@@ -101,7 +104,7 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden)zero();});
 addEventListener('pagehide',()=>zero());
 addEventListener('keydown',event=>{
   if(event.code==='Escape'){event.preventDefault();zero(false);act('stop');return;}
-  if(page!=='drive'||/INPUT|SELECT|TEXTAREA/.test(event.target.tagName))return;
+  if(page!=='drive'||event.target.matches('input:not([type=range]),select,textarea'))return;
   if(['KeyW','KeyA','KeyS','KeyD','Space'].includes(event.code)){event.preventDefault();keys.add(event.code);}
 });
 addEventListener('keyup',event=>{
@@ -127,6 +130,13 @@ $('ownership').onclick=()=>act(state?.owner===client?'release':'claim');
 $('input-mode').onchange=()=>{zero();act('input_mode',{mode:$('input-mode').value});};
 $('speed').oninput=()=>text('speed-value',`${$('speed').value}%`);
 $('speed').onchange=()=>act('speed_limit',{value:Number($('speed').value)/100});
+for(const key of ['throttle','steering']) $(`${key}-slider`).oninput=()=>{axes[key]=Number($(`${key}-slider`).value);input();};
+for(const id of ['controller-stick','raw-throttle','raw-steering','raw-hold'])$(id).onchange=()=>zero();
+$('controller-rescan').onclick=()=>zero();
+$('connect-oc').onclick=()=>{zero();act('connect',{mode:'oc-mock'});};
+$('connect-ros').onclick=()=>{zero();act('connect',{mode:'ros2',namespace:$('ros-namespace').value.trim()});};
+$('mock-apply').onclick=()=>act('mock_options',{reply_delay_ms:Number($('mock-delay').value),drop_commands:$('mock-drop').value==='true'});
+initPriorities(send,notice);
 $('joint').onchange=()=>{axes.jog=0;act('joint',{joint:$('joint').value});};
 $('connect-mock').onclick=()=>{zero();act('connect',{mode:'mock'});};
 $('connect-udp').onclick=()=>{zero();act('connect',{mode:'udp',host:$('rover-host').value.trim(),port:Number($('rover-port').value)});};
@@ -137,20 +147,22 @@ $('comparison-file').onchange=async()=>{const file=$('comparison-file').files[0]
 
 function render(s) {
   const mine=s.owner===client, c=s.control, r=s.rover, g=s.gps;
-  text('mode-tag',s.mode==='model'?'MODEL ONLY':s.mode==='mock'?'LOCAL MOCK':'CHASSIS UDP');
+  const modeLabel=({'model':'MODEL ONLY','mock':'NET5 LOCAL MOCK','udp':'NET5 CHASSIS UDP','oc-mock':'OC LOOPBACK','ros2':'ONBOARD ROS 2'})[s.mode]||s.mode;
+  text('mode-tag',modeLabel);renderPriorities(s.video_priorities,mine);
   const seconds=Math.floor(s.uptime_s);text('uptime',`T+${String(Math.floor(seconds/60)).padStart(2,'0')}:${String(seconds%60).padStart(2,'0')}`);
   text('owner-label',mine?'You own the controls':s.owner?'View-only browser':'Controls available');text('ownership',mine?'Release control':'Acquire control');$('ownership').disabled=!!s.owner&&!mine;
   text('control-label',c.stop_latched?'STOP LATCHED':c.enabled?'ENABLED':'DISARMED');text('control-reason',c.reason);
   $('control-light').style.background=c.stop_latched?'var(--red)':c.enabled?'var(--teal)':'var(--amber)';
   $('enable').disabled=!mine||page!=='drive'||c.enabled||c.stop_latched;$('reset-stop').disabled=!mine||!c.stop_latched;
   document.querySelectorAll('[data-action="disarm"], [data-action="stop"]').forEach(b=>b.disabled=false);
-  for(const id of ['input-mode','speed','joint','arm-mode','connect-mock','connect-udp','gps-connect','input-pause'])$(id).disabled=!mine;
+  for(const id of ['input-mode','speed','joint','arm-mode','connect-mock','connect-udp','connect-oc','gps-connect','input-pause'])$(id).disabled=!mine;
   document.querySelectorAll('.jog').forEach(b=>b.disabled=!mine||!s.arm_mode||!c.enabled);
-  $('mock-silent').disabled=!mine||s.mode!=='mock';
+  $('mock-silent').disabled=$('mock-apply').disabled=!mine||s.mode!=='mock';$('claim-oc').disabled=!mine||!s.onboard;$('connect-ros').disabled=!mine||!s.ros2_available;$('throttle-slider').disabled=$('steering-slider').disabled=!mine||s.input_mode==='gamepad';
+  text('ros-availability',s.ros2_available?'ROS 2 interfaces available in this Python environment':'ROS 2/DDS unavailable here; OC loopback exercises the same upstream Python supervisor on this Mac.');
   text('left-value',`${fmt(c.left*100,1)}%`);text('right-value',`${fmt(c.right*100,1)}%`);
   $('left-meter').style.width=`${Math.abs(c.left)*400}%`;$('right-meter').style.width=`${Math.abs(c.right)*400}%`;
   text('input-age',fmt(s.input_age_s===null?null:s.input_age_s*1000,0,' ms'));
-  text('link-value',r.fault?'Link fault':r.pending_enable?'Enabling…':r.ready?'Ready':r.connected?'Handshaking':'Disconnected');
+  text('link-value',s.onboard?(s.onboard.fault?'OC feedback fault':s.onboard.state?.mcu_ready?'OC / MCU ready':'Waiting for OC/MCU'):r.fault?'Link fault':r.pending_enable?'Enabling…':s.connection_degraded?'Degraded':r.ready?'Ready':r.connected?'Handshaking':'Disconnected');
   text('link-detail',r.fault|| (r.connected?`${s.mode==='mock'?'Local mock · ':''}ACK ${fmt(r.rtt_ms,1,' ms')}`:'Model runs without motor hardware'));
   if(document.activeElement!==$('input-mode'))$('input-mode').value=s.input_mode;
   text('input-badge',s.input_mode==='virtual'?'VIRTUAL STICK':s.input_mode==='gamepad'?'GAMEPAD':'RC PREVIEW');
@@ -165,9 +177,12 @@ function render(s) {
   text('comparison-label',g.comparison.label);const m=g.comparison.metrics;text('compare-count',m.count);text('compare-rmse',fmt(m.rmse_m,3,' m'));text('compare-bias',`${fmt(m.bias_e_m,2)} / ${fmt(m.bias_n_m,2)} m`);text('compare-skipped',g.comparison.skipped);
   text('rtt',fmt(r.rtt_ms,2,' ms'));text('rx-age',fmt(r.age_s,2,' s'));text('rejected',r.rejected);text('log-rows',`${s.log_rows.toLocaleString()} / 12,000 rows`);
   text('telemetry-state',r.state?.state||r.state?.type|| (r.ready?'READY':'DISCONNECTED'));
-  text('rover-json',r.state?JSON.stringify(r.state,null,2):'No telemetry received');text('command-json',JSON.stringify(c,null,2));
-  text('connection-tag',s.mode==='model'?'MODEL ONLY':s.mode==='mock'?'LOCAL MOCK':'CHASSIS UDP');
-  text('connection-detail',`Connected: ${r.connected} · Ready: ${r.ready}\nPending enable: ${r.pending_enable} · Fault: ${r.fault||'none'}`);
+  text('rover-json',r.state?JSON.stringify(r.state,null,2):'No telemetry received');text('command-json',JSON.stringify({...c,onboard_request_preview:s.onboard_request_preview},null,2));
+  text('connection-tag',modeLabel);
+  text('connection-detail',s.connection_summary||'Disconnected');
+  text('diagnostics-json',JSON.stringify(s.diagnostics,null,2));text('fault-json',s.first_fault?JSON.stringify(s.first_fault,null,2):'No captured fault');text('onboard-json',s.onboard?JSON.stringify(s.onboard,null,2):'No onboard transport connected');text('onboard-summary',s.onboard?`Owns OC: ${s.onboard.owned} · feedback fresh: ${s.onboard.fresh}\nSupervisor enabled: ${s.onboard.state?.supervisor_enabled??'unknown'} · MCU enabled: ${s.onboard.state?.mcu_enabled??'unknown'}\n${s.onboard.state?.reason||'Waiting for onboard state'}`:'No onboard transport connected');
+  const enc=s.onboard?.state?{counts:s.onboard.state.encoder_counts.map((v,i)=>s.onboard.state.encoder_valid[i]?v:null),rates:s.onboard.state.encoder_count_rate,rate_valid:s.onboard.state.encoder_rate_valid,fresh:s.onboard.fresh&&s.onboard.state.mcu_ready}:s.encoders;
+  $('encoder-rows').innerHTML=['FL','RL','FR','RR'].map((wheel,i)=>`<tr><td>${wheel}</td><td>${enc?.fresh&&enc.counts[i]!==null?esc(enc.counts[i]):'N/A'}</td><td>${enc?.fresh&&enc.rate_valid[i]?fmt(enc.rates[i],1):'N/A'}</td></tr>`).join('');
   text('mock-silent',r.mock_silent?'Restore ACKs':'Drop ACKs');text('input-pause',s.input_paused?'Resume input':'Pause input');
   text('authority-detail',`${s.clients} browser session${s.clients===1?'':'s'} connected. ${mine?'This browser owns the controls.':s.owner?'Another browser owns the controls.':'No operator currently owns the controls.'}`);
   if(page==='drive')drawMap('drive-map',[{points:s.path,color:'#67ddbf'}],s.pose,2);

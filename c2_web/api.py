@@ -49,11 +49,17 @@ def create_app(runtime=None):
 
     @app.get("/api/health")
     async def health():
-        return {"service": "urc-c2-web", "version": "0.1.0", "tick": station.sequence, "running": station.running}
+        import os
+        return {"service": "urc-c2-web", "version": "0.2.0-NET5", "pid": os.getpid(),
+                "tick": station.sequence, "running": station.running}
 
     @app.get("/api/state")
     async def state():
         return station.state()
+
+    @app.get("/api/video/priorities")
+    async def video_priorities():
+        return station.video.state()
 
     @app.get("/api/ports")
     async def ports():
@@ -66,6 +72,14 @@ def create_app(runtime=None):
     @app.get("/api/logs/commands")
     async def commands():
         return jsonl(list(station.records), "c2-command-log.jsonl")
+
+    @app.get("/api/logs/onboard")
+    async def onboard_log():
+        return jsonl(list(station.onboard.records) if station.onboard else [], "c2-onboard-chassis.jsonl")
+
+    @app.get("/api/logs/first-fault")
+    async def first_fault():
+        return jsonl([station.last_fault_snapshot] if station.last_fault_snapshot else [], "c2-first-fault.jsonl")
 
     @app.get("/api/logs/gps")
     async def gps_log():

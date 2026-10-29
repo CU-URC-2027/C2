@@ -1,27 +1,29 @@
-# Desktop → browser parity
+# Backend → browser parity
 
-October 27, 2026. Scope is the repository's 0.4 desktop prototype, not a complete field-ready C2 system. Original source files are preserved.
+October 28, 2026. Baseline: `c2-net5-recovery` commit `971aec79b103d9106dc47571f473b871fa9490cf`, merged into `browser-ui-port`. Upstream `main` remains `6ae96d1`. This covers the NET5 bench app and the separate ROS chassis dashboard, not field readiness.
 
-| Existing behavior | Browser implementation | Engineering status |
+| Backend capability | Browser implementation | Validation / limit |
 | --- | --- | --- |
-| Drive mixing, wheel cap, deadman, neutral enable | Same `Control`, virtual stick, keyboard and standard Gamepad API | Software policy tested; physical mapping needs validation |
-| Xbox controller via pygame | Browser standard gamepad, left Y / right X, LB hold | No physical controller exercised in this build |
-| RC source demo | RC emulation selector | Preview only; blocked from connected chassis |
-| STOP / reset / disarm | Persistent safety bar and Esc; reset stays disarmed | Mock/unit tested; independent physical stop required |
-| Guarded UDP connection | Same `RoverLink`, host/port controls and explicit enable | Loopback mock tested; no rover operated |
-| Local mock, ACK-loss injection | Connections page | Real loopback UDP and independent mock watchdog |
-| Arm joint jog | All five joints and hold-to-jog command preview | No hardware transport; chassis disconnected |
-| Command trajectory and wheel values | Canvas path, pose, wheel meters/history | Explicit toy model, not odometry |
-| Four camera panes | Four generated-demo/HTTP snapshot slots | Existing functionality ported; future camera design remains open |
-| Demo camera images | Moving synthetic JPEG grid | No camera opened |
-| GPS serial / rover / demo | Headless serial adapter, guarded rover NMEA, synthetic mode | Parser and synthetic modes tested; no USB GPS accessed |
-| GPS validity / scatter / local track | Same parser/statistics, browser metrics/plots | Precision semantics retained |
-| Reference comparison | JSONL import, sample/error/bias metrics, overlay plot | Same coordinate/timestamp comparison algorithm |
-| Command / GPS logging | Bounded memory buffers and JSONL downloads | No automatic disk capture; schema described in development guide |
-| UI event/status display | Shared station event history and raw feedback | Backend owns state; multiple tabs share it |
-| Safety on input loss | Independent backend task and new-input deadline | Tested, including recovery requiring deliberate enable |
-| Browser authority / connection loss | Single operator; all viewers can STOP/disarm | New behavior; loopback application only |
+| Neutral enable, hold-to-drive, wheel cap, STOP/reset | Preserved Control policy; persistent safety controls | Browser/runtime and mock tests; no motors |
+| Sliders and raw input vector while disarmed | Throttle/steering sliders, virtual stick/vector and keyboard | Browser controls; vector is input, not measured velocity |
+| Left/right Xbox sticks, LB hold, raw mapping | Standard Gamepad API left/right selectors plus raw axes/button indices and rescan | Mapping checks pass; physical controller/browser mapping needs validation |
+| Direct guarded UDP | Current NET5 RoverLink | Handshake, faults and no automatic restart tested |
+| Known-disabled idle degradation/recovery | Degraded status, Enable blocked pending fresh ACK; no automatic enable | Runtime regression test |
+| Delayed ARM confirmation | NET5 PING progression; no movement before returned confirmation | 150 ms delayed mock enable and 10 s delayed soak passed |
+| Packet rejection, timing and first-fault evidence | Live NET5 diagnostics, received MCU diagnostics, frozen first-fault display/export | Captured before STOP changes evidence; log retains it |
+| Mock fault injection | ACK loss, command drop, 0–150 ms reply delay, input pause | Loopback only |
+| Returned counts and unsigned pulse rates | FL/RL/FR/RR table with validity/staleness and N/A | No invented encoder data from mock |
+| Arm preview, five joint jogs | Same preview policy; drive inhibited in bench arm mode | No arm transport; upstream onboard interface is chassis-only |
+| GPS serial/rover/demo, validity/scatter | Headless adapter and preserved parser/statistics | Synthetic/parser tests; real USB GPS pending |
+| GPS reference comparison and capture | JSONL import, metrics/plots and downloads | Same shared-origin/time interpolation; no inferred accuracy |
+| Four generated/snapshot camera panes | Preserved HTTP JPEG/PNG and demo panes | No video encoder/streaming pipeline added |
+| Command pose/path and future OC request preview | Model path plus forward/turn preview with explicit not-sent marker | Toy geometry retained; not odometry |
+| JSONL capture/export and readable diagnostics | UTC/monotonic input, feedback, faults and model records; scroll-preserving updates | Bounded buffers, intentional download |
+| ROS dashboard claim/enable/disarm/STOP/reset | Browser OC controls and upstream Supervisor/ChassisBridge / OperatorNode adapters | Same host policy in OC loopback; real DDS unavailable on this Mac |
+| ROS dashboard feedback loss / OC restart behavior | Local fault latch, no replay of cached motion, explicit claim/reset/enable | Core/host and adapter tests; DDS execution pending |
+| ROS dashboard encoder validity and Save run | Full OC state table and 6000-row receipt-time capture export | Same upstream field contract, no calibrated wheel velocity |
+| New C2 video-priority configuration | Draggable Camera 01–05 list plus enabled/omitted divider; Python owns revision/session/publication | Real C2-process UDP publisher to an independent local receiver; not a lab simulator |
 
-Additional honest boundaries: battery is unavailable, final supervisor/ROS 2 is planned, physical networking and timing are unvalidated. Serial ports and real controller mapping await hardware-specific tests. Camera streaming/encoding architecture is intentionally outside this port, per the user's October 27 clarification.
+The OC loopback adapter runs real upstream Python supervisor/bridge code with a localhost mock MCU and no DDS. Selecting ROS 2 instead uses the upstream OperatorNode and built urc_c2_interfaces in an available ROS environment. Missing ROS is explicit; the UI does not present loopback as DDS validation. The upstream ROS vendor adapters remain pinned to their documented baseline; they were not silently replaced with NET5.
 
-See `VALIDATION.md` for observed checks and known limits. This is AI-assisted prototype implementation requiring substantive human review and validation under the course policy; it is not an approved design or submission-ready artifact.
+Direct bench mode retains GPS/cameras/arm preview; the upstream ROS chassis contract has no arm/GPS/camera topics. The browser keeps those existing local panels and reports the interface boundary. Physical networking, stopping behavior, GPS, controllers, camera sources and Ubuntu/ROS runtime remain hardware/integration acceptance work. No actual motors or devices were operated.

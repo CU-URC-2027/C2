@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import {readController} from '../web/controller.mjs';
+const pad={connected:true,mapping:'standard',axes:[.3,-.7,-.4,.6],buttons:Array.from({length:8},(_,i)=>({pressed:i===4}))};
+assert.deepEqual(readController(pad),{throttle:.7,steering:.3,deadman:true});
+assert.deepEqual(readController(pad,{stick:'right'}),{throttle:-.6,steering:-.4,deadman:true});
+assert.deepEqual(readController({...pad,mapping:''},{stick:'raw',throttleAxis:3,steeringAxis:0,holdButton:1}),{throttle:-.6,steering:.3,deadman:false});
+assert.throws(()=>readController({...pad,connected:false}));
+assert.throws(()=>readController(pad,{stick:'raw',throttleAxis:8,steeringAxis:0,holdButton:4}));
+assert.throws(()=>readController({...pad,axes:[NaN,0]}));
+console.log('Controller mapping checks passed');
