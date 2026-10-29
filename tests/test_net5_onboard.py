@@ -47,7 +47,7 @@ async def test_browser_keeps_neutral_input_fresh_during_delayed_enable():
     try:
         await r.action("a", "connect", {"mode": "mock"})
         await r.action("a", "mock_options", {"reply_delay_ms": 150, "drop_commands": False})
-        await wait_until(lambda: r.link.ready(r.clock()) and r.link.rtt_ms is not None and r.link.rtt_ms >= 140)
+        await wait_until(lambda: r.direct_enable_ready() and r.link.rtt_ms is not None and r.link.rtt_ms >= 140)
         await r.action("a", "input", {"seq": 1})
         await r.action("a", "enable", {})
         for seq in range(2, 15):
@@ -93,5 +93,28 @@ async def test_oc_loopback_claim_enable_release_stop_and_input_expiry_use_upstre
         await r.action("a", "reset_stop", {})
         await wait_until(lambda: not mock.stopped)
         assert not r.control.armed
+    finally:
+        await r.close()
+
+
+async def test_initial_hello_cannot_offer_arm_before_nonmotion_command_progress():
+    r = Runtime()
+    r.register("a")
+    try:
+        await r.action("a", "connect", {"mode": "mock"})
+        now = r.clock()
+        # Valid fresh initial feedback, before the first post-handshake PING ACK.
+        r.link.state = {"seq": 1, "epoch": 2, "enabled": False, "stopped": False}
+        r.link.last_rx = now
+        r.link.sent[1] = now
+        assert r.link.ready(now) and not r.direct_enable_ready()
+        await r.action("a", "input", {"seq": 1})
+        with pytest.raises(ValueError, match="post-handshake"):
+            await r.action("a", "enable", {})
+        assert not r.control.armed and "ARM" not in r.link.sent_ops.values()
+        r.link.send("PING", now=now)
+        r.link.state["seq"] = r.link.seq
+        assert r.direct_enable_ready()
+        assert not r.control.armed  # Confirmation itself never enables.
     finally:
         await r.close()

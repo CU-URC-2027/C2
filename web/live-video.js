@@ -7,7 +7,25 @@ const supported=typeof VideoDecoder==='function'&&typeof EncodedVideoChunk==='fu
 $('live-codec-capability').textContent=supported?`WebCodecs available · ${isSecureContext?'secure local context':'insecure context'}`:'WebCodecs is unavailable in this browser. Open this local station in current Chrome or Safari.';
 $('live-video-toggle').disabled=!supported;
 
-function active(){return wanted&&visible&&location.hash==='#cameras';}
+// Move one panel between workspaces. A route change must not create another set
+// of video sockets or decoders, or publish any operator input.
+const panel=$('live-video-panel');
+let primary='cam-01';
+function videoPage(){
+  const page=location.hash.slice(1);
+  if(page==='cameras')return 'cameras';
+  return ['gps','telemetry','connections','development'].includes(page)?null:'drive';
+}
+function active(){return wanted&&visible&&videoPage()!==null;}
+function layout(){
+  const page=videoPage();
+  if(page){
+    const slot=$(`${page}-video-slot`);
+    if(panel.parentElement!==slot)slot.append(panel);
+    panel.dataset.layout=page;
+  }
+  for(const [id,view] of views)view.canvas.closest('.live-video-tile').classList.toggle('primary-view',id===primary);
+}
 class CameraView{
   constructor(id){
     this.id=id;this.paused=false;this.socket=null;this.decoder=null;this.config=null;this.epoch=null;this.generation=0;
@@ -135,13 +153,15 @@ class CameraView{
   }
 }
 for(const id of ids)views.set(id,new CameraView(id));
-function sync(){for(const view of views.values()){if(active()&&!view.paused)view.connect();else view.disconnect();}}
+function sync(){layout();for(const view of views.values()){if(active()&&!view.paused)view.connect();else view.disconnect();}}
+$('live-primary-camera').onchange=()=>{primary=$('live-primary-camera').value;layout();};
 $('live-video-toggle').onclick=()=>{wanted=!wanted;$('live-video-toggle').textContent=wanted?'Stop live video':'Start live video';sync();};
 $('live-restart-receiver').onclick=async()=>{try{const r=await fetch('/api/live-video/restart',{method:'POST'});if(!r.ok)throw new Error('Receiver restart failed');}catch(error){$('live-receiver-state').textContent=error.message;}};
 addEventListener('hashchange',sync);document.addEventListener('visibilitychange',()=>{visible=!document.hidden;sync();});
-addEventListener('pagehide',()=>{wanted=false;sync();});
+addEventListener('pagehide',()=>{wanted=false;$('live-video-toggle').textContent='Start live video';sync();});
 setInterval(()=>{for(const view of views.values())view.report();},500);
-setInterval(async()=>{if(location.hash!=='#cameras'||document.hidden)return;try{
+setInterval(async()=>{if(!videoPage()||document.hidden)return;try{
   const r=await fetch('/api/live-video/state'),s=await r.json();
   $('live-receiver-state').textContent=`Python PID ${s.process_pid} · TCP ${s.host}:${s.port} · ${s.cameras.filter(c=>c.connected).length}/5 connected · receiver restarts ${s.restart_count}`;
 }catch{}},1000);
+sync();

@@ -1,17 +1,81 @@
-# Browser port verification
+# Browser transition verification
 
-October 28, 2026, Mac / Python 3.12.4. Reviewed/merged upstream `c2-net5-recovery` at `971aec7`; no backend changes were found on main after `6ae96d1`.
+October 29, 2026 · local Mac / Python 3.12. NET5 baseline `971aec7` is already
+merged into the browser branch. These are engineering prototype checks, not
+hardware acceptance or team approval.
 
-- **42 upstream NET5 unit/integration tests passed.**
-- **21 upstream hidden-window desktop GUI tests passed.**
-- **16 upstream ROS chassis host-side tests passed**, including the dashboard widgets. This is not ROS serialization/DDS execution.
-- **26 browser-backend tests passed**, including NET5 idle degradation/recovery, 150 ms delayed enable, first-fault logging, OC claim/enable/release/STOP/reset/input expiry, lower wheel cap, actual UDP priority publication/ACK, invalid input and HTTP boundaries.
-- A **10-second localhost soak with 150 ms delayed replies** passed drive, release to zero, command loss stop, no automatic recovery and deliberate reconnect.
-- Node controller-mapping checks passed for standard left/right sticks, raw mapping, disconnect, invalid axes and out-of-range indices. JavaScript syntax and Git whitespace checks passed.
-- Browser interaction checks exercised OC connection/claim, confirmed enable, STOP/reset, N/A encoder validity, and C2 video priority reordering/divider submission. Earlier GPS/camera checks remain documented in the prior local work; no new encoder pipeline was introduced.
+## Shared verification command
 
-Code review caught and corrected repeated idle disarm publication in the new browser OC adapter, which could interfere with enable confirmation. Motion INPUT publication now occurs only on new browser input. Server/priority heartbeats never renew operator input timestamps. Browser close/focus loss/source changes/transport changes disarm; recovery/reset never enables motion.
+```sh
+uv run --frozen python scripts/verify.py
+```
 
-Remaining validation: physical gamepad mapping, USB GPS/cameras, actual rover/radio timing, actual Ubuntu/ROS DDS execution and powered acceptance tests. No motors, physical camera/GPS, firmware uploads, OS network changes or external deployment were performed. Upstream firmware compilation records are inherited evidence, not newly repeated compiler results. Arm/RC/model/battery status remains explicit.
+The command completed successfully after the Enable-readiness correction below:
 
-The architecture lab is separate local software and is not included in this branch. Runtime captures, credentials, environments and local screenshots remain ignored. This AI-assisted implementation needs substantive human engineering review and applicable course disclosure/approval before team deployment.
+- **33 browser-backend tests passed**, including real fragmented TCP framing,
+  receiver/viewer bounds, restart/epoch handling, origin/authority separation,
+  NET5/OC input expiry and five simultaneous synthetic TCP inputs with slow viewers.
+- **Three video-view lifecycle checks passed** in a Node component harness: explicit
+  default-off behavior, one set of sockets/decoders shared across Drive/Cameras,
+  display-only primary selection, pause, hiding, other routes and page exit cleanup.
+  This harness does not establish browser codec support or real focus behavior.
+- Controller mapping checks and syntax checks for every browser JavaScript module passed.
+- **42 NET5 desktop unit/integration tests**, **21 hidden desktop GUI checks** and
+  **16 ROS chassis host checks**, including dashboard widgets, passed.
+- A **10-second loopback soak with 150 ms reply delay** passed drive, release-to-zero,
+  command loss stop, no automatic enable and deliberate reconnect.
+- Native C++ guard compilation/tests passed. Arduino compilation was explicitly
+  skipped; firmware, physical devices and OS network settings were not changed.
+
+The GitHub Actions workflow uses the same command on Ubuntu 24.04 with a virtual
+GUI display and pinned action revisions. YAML/triggers were checked locally;
+**remote CI has not run**, because these merge-preparation commits have not been pushed.
+The original `verify_all.py` and canonical/historical desktop and ROS source files
+remain unchanged. `--skip-gui` explicitly reports omitted Tk checks. Arduino
+compilation is opt-in and never uploads.
+
+## Delayed initial-handshake finding
+
+The initial combined run exposed a real timing failure in the browser's direct
+NET5 path. In 10 of 20 diagnostic trials with 150 ms mock replies, Enable immediately
+after the first HELLO acknowledgment reached the unchanged 350 ms original-command
+age limit before later command progress arrived. It stopped safely, but prevented
+reliable initial enable. This was not a video-encoder failure.
+
+The browser now offers/accepts Enable only after a fresh acknowledgment of a
+post-handshake non-motion command. The backend rejects premature Enable before
+arming locally or sending ARM. A regression checks that confirmation itself never
+enables. **Twenty follow-up delayed-enable trials passed.** No upstream NET5 code,
+MCU/PC timeout limit, cached-input publication or ROS vendor adapter was changed.
+
+## Actual browser and media checks
+
+The existing native browser supports the received H.264 profiles. Actual five-feed
+playback passed from Drive with the selectable large view. A fresh end-to-end run
+also passed 1 Mb/s primary-only, 400 kb/s emergency output, zero-bandwidth stale/stop,
+bandwidth recovery, C2 TCP receiver restart and sender reconnect. These checks use
+real loopback TCP plus actual browser render reports; application pacing is not a
+radio packet-loss emulator.
+
+A 12-second browser/mock observation captured 246 samples with all five feeds fresh
+and rendering, including 36 samples of nonzero returned mock throttle during a held
+keyboard command and zero output after release. Primary-view selection left authority
+and the priority revision unchanged. Switching to Cameras disarmed and retained video;
+pausing Camera 02 released only its viewer. A non-video route released every browser
+viewer while all five TCP inputs continued. The expandable command model still renders.
+The split layout was visually checked; a requested narrow viewport override did not
+apply in this automation environment, so no mobile-breakpoint acceptance is claimed.
+
+Automation switching between background in-app tabs did not produce an actual OS
+focus/visibility change. **Real browser/window focus-loss and physical controller
+mapping remain hands-on acceptance work.** Existing route/expiry checks are not a
+substitute for those tests. Actual Ubuntu/Jazzy builds, DDS, physical Wi-Fi/motor
+stopping, GPS and device integration also remain unverified here. The ROS transport
+still uses its documented older pinned adapters.
+
+Private screenshots and detailed API samples remain in the separate local lab,
+outside Git. All ten synthetic-source/native-encoder worker PIDs were confirmed gone
+after cleanup. Services remain online; generation, encoding, transmission and playback
+are off. C2 is disconnected/disarmed. No push, PR, deployment, LAN exposure, firmware
+upload or physical operation occurred. Substantive human review and applicable course
+AI disclosure/approval remain required before team deployment.

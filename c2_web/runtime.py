@@ -163,6 +163,8 @@ class Runtime:
         elif name == "enable":
             if self.input_mode == "rc-demo" and (self.link.connected or self.onboard):
                 raise ValueError("RC is a preview input; choose virtual stick or gamepad for chassis control")
+            if self.link.connected and not self.direct_enable_ready():
+                raise ValueError("Wait for a fresh post-handshake acknowledgment before enabling")
             ok, reason = self.control.enable(self.clock())
             if not ok:
                 raise ValueError(reason)
@@ -433,6 +435,13 @@ class Runtime:
     def mode(self):
         return self.onboard.mode if self.onboard else "mock" if self.mock else "udp" if self.link.connected else "model"
 
+    def direct_enable_ready(self):
+        # A delayed first HELLO reply can be fresh just before its original send
+        # timestamp expires. Confirm non-motion command progress before offering
+        # ARM; preserve the upstream 250/350 ms timeouts and require a new click.
+        return (self.link.ready(self.clock()) and self.link.state is not None
+                and self.link.sent_ops.get(self.link.state["seq"]) not in (None, "HELLO"))
+
     def onboard_preview(self, result):
         return {"session_id": self.video.session, "command_id": self.sequence, "enable_requested": result["enabled"],
                 "stop_requested": result["stop_latched"], "forward_mps": round((result["left"]+result["right"])/2, 4),
@@ -455,6 +464,7 @@ class Runtime:
             "input_paused": self.input_paused, "speed_limit": self.control.speed_limit,
             "control": result, "arm_mode": self.control.arm_enabled, "joint": self.joint,
             "rover": {"connected": self.link.connected, "ready": self.link.ready(now),
+                      "enable_ready": self.direct_enable_ready(),
                       "pending_enable": self.link.pending_arm is not None, "fault": self.link.fault,
                       "state": self.link.state, "rtt_ms": self.link.rtt_ms, "rejected": self.link.rejected,
                       "age_s": now-self.link.last_rx, "mock_silent": self.mock.silent if self.mock else False},

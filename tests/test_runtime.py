@@ -100,7 +100,7 @@ async def test_mock_handshake_drive_and_ack_loss_fail_closed():
         for i in range(30):
             await r.action("a", "input", sample(i))
             await asyncio.sleep(.05)
-            if r.link.ready(r.clock()):
+            if r.direct_enable_ready():
                 break
         assert r.link.ready(r.clock())
         assert not r.mock.enabled
