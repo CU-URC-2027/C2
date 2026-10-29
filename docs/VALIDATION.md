@@ -1,5 +1,33 @@
 # Browser transition verification
 
+## Repository packaging and main integration — October 29, 2026
+
+Main now includes NET5 `971aec7`; the browser branch already contains it. A curated
+producer/lab is included under `prototypes/video_pipeline/` with its own locked
+Python environment and agent/hardware-porting instructions. `packages/video_protocol/`
+is the single framing implementation used by both processes. The private original,
+captures, environments, compiled media workers and GStreamer registries are excluded.
+Canonical desktop/firmware, historical source, ROS workspace/pins and `verify_all.py`
+remain identical to main.
+
+The expanded root verification completed: **33 C2 backend tests, 72 prototype tests,
+three browser video-view lifecycle checks, controller and all JavaScript checks,
+42 desktop tests, 21 GUI checks, 16 ROS host checks, delayed loopback soak and native
+C++ guard compile/tests** passed. The prototype tests do not need FFmpeg/GStreamer/GPU;
+its separate environment was exercised. The prototype refuses to reuse a different
+service at its port and clearly rejects native Windows media-worker startup.
+
+The newly packaged producer was also launched from this repository, compiled its
+own native worker, used the shared protocol package and passed actual five-feed C2
+browser playback, 1 Mb/s/400 kb/s reductions, zero-bandwidth stale/stop, recovery and
+both receiver/sender reconnect paths. This is Mac/loopback evidence, not Intel/Sigma,
+Windows, radio, two-host or DDS validation. The scripts left producer workloads off.
+Current GitHub Actions results belong to the PR's checks, not these local figures.
+See VIDEO_SYSTEM.md for setup, component ownership and the testing/acceptance boundary.
+
+## Earlier browser transition preparation evidence
+
+
 October 29, 2026 · local Mac / Python 3.12. NET5 baseline `971aec7` is already
 merged into the browser branch. These are engineering prototype checks, not
 hardware acceptance or team approval.
@@ -29,7 +57,7 @@ The command completed successfully after the Enable-readiness correction below:
 
 The GitHub Actions workflow uses the same command on Ubuntu 24.04 with a virtual
 GUI display and pinned action revisions. YAML/triggers were checked locally;
-**remote CI has not run**, because these merge-preparation commits have not been pushed.
+remote CI was not run during that earlier local-only preparation. Current CI results are shown on the PR.
 The original `verify_all.py` and canonical/historical desktop and ROS source files
 remain unchanged. `--skip-gui` explicitly reports omitted Tk checks. Arduino
 compilation is opt-in and never uploads.
@@ -76,6 +104,5 @@ still uses its documented older pinned adapters.
 Private screenshots and detailed API samples remain in the separate local lab,
 outside Git. All ten synthetic-source/native-encoder worker PIDs were confirmed gone
 after cleanup. Services remain online; generation, encoding, transmission and playback
-are off. C2 is disconnected/disarmed. No push, PR, deployment, LAN exposure, firmware
-upload or physical operation occurred. Substantive human review and applicable course
+are off. C2 is disconnected/disarmed. No deployment, LAN exposure, firmware upload or physical operation occurred during those checks. Substantive human review and applicable course
 AI disclosure/approval remain required before team deployment.

@@ -6,10 +6,9 @@ telemetry, GPS and camera imagery.
 
 ## Start the browser command station
 
-The browser UI is the primary development interface on `browser-ui-port`. Its Python
-backend includes the reviewed `c2-net5-recovery` baseline (`971aec7`) alongside the
-preserved desktop fallback and ROS workspace. This branch is being prepared to merge
-after NET5 lands on `main`.
+The browser UI is the primary development interface. Its Python backend includes
+the NET5 baseline now on `main` (`971aec7`), alongside the preserved desktop fallback
+and ROS workspace.
 
 Use Python 3.12 or 3.13 and `uv`. On this Mac, **Open C2.command** runs the same commands:
 
@@ -28,8 +27,9 @@ Drive includes a selectable large Camera 01–05 view and four smaller feeds bes
 controls. The Cameras page shares those same decoder sessions, plus feed priorities
 and the original snapshot/demo sources. Start live playback explicitly; hiding the tab
 or leaving Drive/Cameras releases the decoders. Changing pages still disarms motion.
-Source generation and encoding remain in a separate private lab; this checkout can
-receive compatible H.264 over loopback TCP but never starts that lab implicitly.
+The optional producer is in [`prototypes/video_pipeline/`](prototypes/video_pipeline/README.md)
+with a separate process/environment. C2 receives compatible H.264 over loopback TCP
+and never starts the producer implicitly.
 
 The HTTP service binds to `127.0.0.1:8870`, and the passive video receiver to
 `127.0.0.1:8874`. No LAN listener or external deployment is configured. The browser can
@@ -43,7 +43,7 @@ uv run python scripts/verify.py
 ```
 
 This verifies browser API/control/video tests, controller/view lifecycle checks, all
-browser JavaScript syntax, NET5 tests and delayed-reply soak, ROS host tests, and native
+browser/prototype JavaScript syntax, hardware-free video prototype tests, NET5 tests and delayed-reply soak, ROS host tests, and native
 guard tests when a C++ compiler is present. GitHub Actions uses the same entry point
 with a virtual display. Firmware compilation is opt-in and never uploads.
 
@@ -51,6 +51,20 @@ See [development setup](docs/DEVELOPMENT.md), [architecture](docs/ARCHITECTURE.m
 [parity and boundaries](docs/PORT_PARITY.md), [receiver protocol](docs/VIDEO_RECEIVER.md),
 and [verification evidence](docs/VALIDATION.md). This AI-assisted engineering prototype
 requires human review, applicable course disclosure/approval and hardware validation.
+
+## Find video code and port an encoder
+
+Start with [the video component map and two-terminal demo](docs/VIDEO_SYSTEM.md).
+The [prototype README](prototypes/video_pipeline/README.md) explains what to run;
+the [hardware adapter guide](prototypes/video_pipeline/HARDWARE_ADAPTERS.md) names
+exact code seams, supported/untested backends and acceptance gates. The [shared
+protocol](packages/video_protocol/README.md) keeps sender/receiver framing in one place.
+Mac VideoToolbox has local test evidence; Intel QSV/Sigma requires hardware validation.
+Other GPU backends require an explicit adapter, not a new C2 UI.
+
+For coding agents, read [AGENTS.md](AGENTS.md) and the closest component's instructions.
+The producer stays experimental and separately launched; captures, native binaries,
+GStreamer registries and private logs are ignored. Unit/CI checks need no encoder GPU.
 
 The retained desktop fallback is **prototype 0.5 / NET5** in `c2_prototype/`.
 The following capability/setup sections describe that original bench application.

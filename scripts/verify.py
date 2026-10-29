@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Verify browser, NET5 and ROS host code using synthetic/loopback tests only."""
 import argparse
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -23,12 +24,18 @@ def main():
     node = shutil.which("node")
     if not node:
         parser.error("Node.js 18+ is required for controller/video-view checks")
+    uv = shutil.which("uv")
+    if not uv:
+        parser.error("uv is required to verify the separate video prototype environment")
 
     completed, skipped = [], []
 
-    def run(label, command):
+    def run(label, command, cwd=ROOT):
         print(f"\nCHECK: {label}", flush=True)
-        subprocess.run([str(part) for part in command], cwd=ROOT, check=True)
+        environment = os.environ.copy()
+        if cwd != ROOT:
+            environment.pop("VIRTUAL_ENV", None)  # Use the prototype's own lock/environment.
+        subprocess.run([str(part) for part in command], cwd=cwd, env=environment, check=True)
         completed.append(label)
 
     run("Browser API, runtime, priorities and video receiver", [sys.executable, "-m", "pytest", "-q"])
@@ -37,6 +44,11 @@ def main():
     for source in sorted((ROOT/"web").iterdir()):
         if source.suffix in (".js", ".mjs"):
             run(f"JavaScript syntax: {source.name}", [node, "--check", source])
+    video = ROOT/"prototypes/video_pipeline"
+    run("Video prototype policy/lifecycle/protocol (no GPU or FFmpeg)",
+        [uv, "run", "--frozen", "python", "-m", "pytest", "-q"], cwd=video)
+    for source in sorted((video/"web").glob("*.js")):
+        run(f"Prototype JavaScript syntax: {source.name}", [node, "--check", source])
     run("NET5 desktop unit/integration", [sys.executable, "-m", "unittest", "discover", "-s", "c2_prototype"])
     if args.skip_gui:
         skipped.extend(["Desktop Tk GUI", "ROS dashboard Tk widgets"])

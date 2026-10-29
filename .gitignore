@@ -12,3 +12,6 @@ data/
 artifacts/
 .env
 *.log
+*.egg-info/
+/packages/video_protocol/build/
+/packages/video_protocol/dist/

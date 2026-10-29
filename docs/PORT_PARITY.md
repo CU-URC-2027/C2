@@ -1,6 +1,6 @@
 # Backend → browser parity
 
-October 29, 2026. Baseline: `c2-net5-recovery` commit `971aec79b103d9106dc47571f473b871fa9490cf`, merged into `browser-ui-port`. Upstream `main` remains `6ae96d1`. This covers the NET5 bench app and the separate ROS chassis dashboard, not field readiness.
+October 29, 2026. Baseline: `c2-net5-recovery` commit `971aec79b103d9106dc47571f473b871fa9490cf`, merged into `browser-ui-port`. Upstream `main` now includes this baseline. This covers the NET5 bench app and the separate ROS chassis dashboard, not field readiness.
 
 | Backend capability | Browser implementation | Validation / limit |
 | --- | --- | --- |
@@ -30,4 +30,4 @@ The OC loopback adapter runs real upstream Python supervisor/bridge code with a 
 
 Direct bench mode retains GPS/cameras/arm preview; the upstream ROS chassis contract has no arm/GPS/camera topics. The browser keeps those existing local panels and reports the interface boundary. Physical networking, stopping behavior, GPS, controllers, camera sources and Ubuntu/ROS runtime remain hardware/integration acceptance work. No actual motors or devices were operated.
 
-Local extension authorized October 28, 2026: the C2 backend now also receives loopback TCP H.264 from the separate architecture lab and relays Camera 01–05 through dedicated browser video sockets. This preserves the parity baseline above and does not acquire motion authority. See `VIDEO_RECEIVER.md`; the receiver/player is committed locally for merge preparation, with no LAN exposure or GitHub push. The architecture lab remains outside this repository.
+Local extension authorized October 28, 2026: the C2 backend now also receives loopback TCP H.264 from the separate architecture lab and relays Camera 01–05 through dedicated browser video sockets. This preserves the parity baseline above and does not acquire motion authority. See `VIDEO_RECEIVER.md`; the receiver/player remains loopback-only. A curated producer/lab is now included under `prototypes/video_pipeline/`, with a separate environment and shared protocol package; see VIDEO_SYSTEM.md. The original private workspace/evidence is not included.

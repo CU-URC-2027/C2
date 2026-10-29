@@ -1,6 +1,6 @@
 # Browser port implementation map
 
-October 29, 2026. Baseline: upstream NET5/recovery `971aec7` (merged from c2-net5-recovery); main remains `6ae96d1`. Scope is the existing desktop prototype's browser UI port. The user explicitly retains camera architecture/encoding decisions. A subsequently authorized local loopback TCP receiver and five-feed H.264 browser player are documented in `VIDEO_RECEIVER.md`; source generation and video encoding remain in the separate lab.
+October 29, 2026. Baseline: upstream NET5/recovery `971aec7` (merged from c2-net5-recovery); main now includes `971aec7`. Scope is the existing desktop prototype's browser UI port. The user explicitly retains camera architecture/encoding decisions. A subsequently authorized local loopback TCP receiver and five-feed H.264 browser player are documented in `VIDEO_RECEIVER.md`; source generation and video encoding remain in the separately launched `prototypes/video_pipeline/` process. See VIDEO_SYSTEM.md.
 
 ```mermaid
 flowchart LR
@@ -59,4 +59,4 @@ The original desktop and nested source copies remain unchanged. Refer to their `
 
 ## Current adapters
 
-`c2_web/onboard.py` wraps the upstream host Supervisor/ChassisBridge or the real OperatorNode when ROS and its built interfaces are installed. Only new browser input calls publish INPUT. Feedback ticks can repeat STOP/DISARM but cannot replay motion. `c2_web/priorities.py` owns a distinct configuration stream, revision/session, UDP publication at 2 Hz and receiver ACK tracking; see VIDEO_PRIORITIES.md. This configuration stream never changes drive-input freshness. The independent receiver is outside this repository.
+`c2_web/onboard.py` wraps the upstream host Supervisor/ChassisBridge or the real OperatorNode when ROS and its built interfaces are installed. Only new browser input calls publish INPUT. Feedback ticks can repeat STOP/DISARM but cannot replay motion. `c2_web/priorities.py` owns a distinct configuration stream, revision/session, UDP publication at 2 Hz and receiver ACK tracking; see VIDEO_PRIORITIES.md. This configuration stream never changes drive-input freshness. The independent priority receiver runs in the video prototype process.

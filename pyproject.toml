@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Local browser command station for the CU URC C2 prototype"
 requires-python = ">=3.12,<3.14"
 dependencies = [
+  "urc-video-protocol",
   "fastapi>=0.115,<1",
   "uvicorn[standard]>=0.30,<1",
   "pillow>=10,<13",
@@ -21,3 +22,6 @@ asyncio_mode = "auto"
 
 [tool.uv]
 package = false
+
+[tool.uv.sources]
+urc-video-protocol = { path = "packages/video_protocol", editable = true }

@@ -1,4 +1,4 @@
-name: Browser and NET5 verification
+name: Browser, NET5 and video prototype verification
 
 on:
   pull_request:
@@ -27,5 +27,5 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y python3-tk xvfb xauth g++
       - name: Install locked Python dependencies
         run: uv sync --frozen
-      - name: Run browser, desktop, ROS host and native guard checks
+      - name: Run browser, video prototype, desktop, ROS host and native guard checks
         run: xvfb-run -a uv run --frozen python scripts/verify.py

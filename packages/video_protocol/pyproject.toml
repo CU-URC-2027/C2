@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools==80.9.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "urc-video-protocol"
+version = "0.1.0"
+description = "Bounded URV1/URB1 H.264 framing shared by the C2 receiver and prototype sender"
+requires-python = ">=3.12,<3.14"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["urc_video_protocol*"]
