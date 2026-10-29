@@ -18,7 +18,7 @@ Open <http://127.0.0.1:8870>. It starts disconnected and disarmed. Use Connectio
 → Connect local mock to exercise it without motors. The browser port includes
 drive/gamepad input, guarded UDP, arm previews, GPS tools, telemetry/log exports,
 four generated-demo/HTTP snapshot panes, NET5 diagnostics/recovery, OC loopback/optional ROS 2 controls, and C2-owned feed priorities. Python
-3.12/3.13 and `uv` are required. Camera streaming/encoding design is outside this port.
+3.12/3.13 and `uv` are required. Video encoding/source generation stay in the separate architecture lab. The user subsequently authorized a local loopback TCP receiver and Camera 01–05 H.264 browser playback; see [the receiver guide](docs/VIDEO_RECEIVER.md).
 
 See [development setup](docs/DEVELOPMENT.md), [architecture](docs/ARCHITECTURE.md),
 [desktop parity and limits](docs/PORT_PARITY.md), and [validation](docs/VALIDATION.md).

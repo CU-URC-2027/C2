@@ -6,7 +6,7 @@ const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;',
 const text = (id, value) => { const el=$(id),next=String(value);if(el.textContent===next)return;const top=el.scrollTop,left=el.scrollLeft;el.textContent=next;el.scrollTop=top;el.scrollLeft=left; };
 const pages = {
   drive: ['Drive & arm', 'Operator control, chassis feedback, and arm command preview.'],
-  cameras: ['Cameras', 'The prototype’s four camera panes: generated demos and HTTP snapshots.'],
+  cameras: ['Cameras', 'Received Camera 01–05 video, feed priorities, and prototype snapshots.'],
   gps: ['Position & GPS', 'Validated fixes, local scatter, and reference comparisons.'],
   telemetry: ['Telemetry', 'Guarded output and receiver feedback, with bounded local logs.'],
   connections: ['Connections', 'Bring up the link, then exercise its failure behavior.'],

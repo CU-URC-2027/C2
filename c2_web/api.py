@@ -4,6 +4,8 @@ from contextlib import asynccontextmanager
 from io import BytesIO
 import json
 import math
+import os
+import time
 import uuid
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
@@ -14,6 +16,8 @@ from serial.tools import list_ports
 
 from .legacy import ROOT
 from .runtime import Runtime, clean
+from .video_receiver import VideoReceiver
+from .video_wire import pack_browser
 
 
 def same_origin(headers):
@@ -21,17 +25,23 @@ def same_origin(headers):
     return origin is None or origin in (f"http://{headers.get('host')}", f"https://{headers.get('host')}")
 
 
-def create_app(runtime=None):
+def create_app(runtime=None, video_receiver=None):
     station = runtime or Runtime()
+    video = video_receiver or VideoReceiver()
 
     @asynccontextmanager
     async def lifespan(app):
         await station.start()
-        yield
-        await station.close()
+        try:
+            await video.start()
+            yield
+        finally:
+            await video.stop()
+            await station.close()
 
     app = FastAPI(title="URC C2", lifespan=lifespan, docs_url=None, redoc_url=None)
     app.state.station = station
+    app.state.video_receiver = video
 
     @app.middleware("http")
     async def local_boundary(request: Request, call_next):
@@ -49,7 +59,6 @@ def create_app(runtime=None):
 
     @app.get("/api/health")
     async def health():
-        import os
         return {"service": "urc-c2-web", "version": "0.2.0-NET5", "pid": os.getpid(),
                 "tick": station.sequence, "running": station.running}
 
@@ -172,6 +181,66 @@ def create_app(runtime=None):
             broadcaster.cancel()
             await asyncio.gather(broadcaster, return_exceptions=True)
 
+    @app.get("/api/live-video/state")
+    async def live_video_state():
+        return video.state()
+
+    @app.post("/api/live-video/restart")
+    async def live_video_restart():
+        await video.restart()
+        return video.state()
+
+    @app.websocket("/ws/video/{stream_id}")
+    async def live_video_socket(ws: WebSocket, stream_id: str):
+        if not same_origin(ws.headers) or ws.url.hostname not in ("localhost", "127.0.0.1", "::1", "testserver") or stream_id not in video.channels:
+            await ws.close(code=1008)
+            return
+        await ws.accept()
+        try:
+            viewer = video.subscribe(stream_id)
+        except ValueError:
+            await ws.close(code=1013)
+            return
+
+        async def receive_reports():
+            while True:
+                raw = await ws.receive_text()
+                if len(raw) > 2048:
+                    raise ValueError("Video telemetry too large")
+                row = json.loads(raw)
+                if not isinstance(row, dict):
+                    raise ValueError("Expected video telemetry object")
+                if row.get("type") == "keyframe":
+                    viewer.clear()
+                    viewer.channel.request_keyframe = True
+                else:
+                    viewer.update_report(row)
+
+        reports = asyncio.create_task(receive_reports())
+        last_status = 0
+        try:
+            while True:
+                if reports.done():
+                    reports.result()
+                    break
+                frame = viewer.pop()
+                if frame:
+                    await asyncio.wait_for(ws.send_bytes(pack_browser(*frame)), .4)
+                if time.monotonic()-last_status > .5:
+                    await asyncio.wait_for(ws.send_json({"type": "status", "camera": viewer.channel.state(), "receiver_pid": os.getpid()}), .4)
+                    last_status = time.monotonic()
+                await asyncio.sleep(.002 if frame else .01)
+        except (WebSocketDisconnect, RuntimeError, TimeoutError, ValueError, TypeError):
+            pass
+        finally:
+            reports.cancel()
+            await asyncio.gather(reports, return_exceptions=True)
+            video.unsubscribe(viewer)
+            try:
+                await ws.close()
+            except (RuntimeError, WebSocketDisconnect):
+                pass
+
     app.mount("/assets", StaticFiles(directory=ROOT / "web"), name="assets")
 
     @app.get("/")
@@ -181,4 +250,4 @@ def create_app(runtime=None):
     return app
 
 
-app = create_app()
+app = create_app(video_receiver=VideoReceiver(port=int(os.environ.get("C2_VIDEO_TCP_PORT", "8874"))))

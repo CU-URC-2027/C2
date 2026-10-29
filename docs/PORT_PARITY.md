@@ -16,7 +16,7 @@ October 28, 2026. Baseline: `c2-net5-recovery` commit `971aec79b103d9106dc47571f
 | Arm preview, five joint jogs | Same preview policy; drive inhibited in bench arm mode | No arm transport; upstream onboard interface is chassis-only |
 | GPS serial/rover/demo, validity/scatter | Headless adapter and preserved parser/statistics | Synthetic/parser tests; real USB GPS pending |
 | GPS reference comparison and capture | JSONL import, metrics/plots and downloads | Same shared-origin/time interpolation; no inferred accuracy |
-| Four generated/snapshot camera panes | Preserved HTTP JPEG/PNG and demo panes | No video encoder/streaming pipeline added |
+| Four generated/snapshot camera panes | Preserved HTTP JPEG/PNG and demo panes | Original panes preserved; later local receiver/player documented separately |
 | Command pose/path and future OC request preview | Model path plus forward/turn preview with explicit not-sent marker | Toy geometry retained; not odometry |
 | JSONL capture/export and readable diagnostics | UTC/monotonic input, feedback, faults and model records; scroll-preserving updates | Bounded buffers, intentional download |
 | ROS dashboard claim/enable/disarm/STOP/reset | Browser OC controls and upstream Supervisor/ChassisBridge / OperatorNode adapters | Same host policy in OC loopback; real DDS unavailable on this Mac |
@@ -27,3 +27,5 @@ October 28, 2026. Baseline: `c2-net5-recovery` commit `971aec79b103d9106dc47571f
 The OC loopback adapter runs real upstream Python supervisor/bridge code with a localhost mock MCU and no DDS. Selecting ROS 2 instead uses the upstream OperatorNode and built urc_c2_interfaces in an available ROS environment. Missing ROS is explicit; the UI does not present loopback as DDS validation. The upstream ROS vendor adapters remain pinned to their documented baseline; they were not silently replaced with NET5.
 
 Direct bench mode retains GPS/cameras/arm preview; the upstream ROS chassis contract has no arm/GPS/camera topics. The browser keeps those existing local panels and reports the interface boundary. Physical networking, stopping behavior, GPS, controllers, camera sources and Ubuntu/ROS runtime remain hardware/integration acceptance work. No actual motors or devices were operated.
+
+Local extension authorized October 28, 2026: the C2 backend now also receives loopback TCP H.264 from the separate architecture lab and relays Camera 01–05 through dedicated browser video sockets. This preserves the parity baseline above and does not acquire motion authority. See `VIDEO_RECEIVER.md`; these receiver/player changes remain local/uncommitted, with no LAN exposure or GitHub push.

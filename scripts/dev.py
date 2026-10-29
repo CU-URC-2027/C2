@@ -43,7 +43,7 @@ def main():
         threading.Thread(target=open_when_ready, daemon=True).start()
     print(f"URC command station: {url}\nCtrl+C to stop. Starts disconnected and disarmed.", flush=True)
     import uvicorn
-    uvicorn.run("c2_web.api:app", host="127.0.0.1", port=args.port, log_level="info", ws_max_size=550000)
+    uvicorn.run("c2_web.api:app", host="127.0.0.1", port=args.port, log_level="info", ws_max_size=550000, ws_per_message_deflate=False)
 
 
 if __name__ == "__main__":

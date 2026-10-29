@@ -1,6 +1,6 @@
 # Browser port implementation map
 
-October 28, 2026. Baseline: upstream NET5/recovery `971aec7` (merged from c2-net5-recovery); main remains `6ae96d1`. Scope is the existing desktop prototype's browser UI port. The user explicitly retains camera architecture/encoding decisions; this port implements no new streaming pipeline.
+October 28, 2026. Baseline: upstream NET5/recovery `971aec7` (merged from c2-net5-recovery); main remains `6ae96d1`. Scope is the existing desktop prototype's browser UI port. The user explicitly retains camera architecture/encoding decisions. A subsequently authorized local loopback TCP receiver and five-feed H.264 browser player are documented in `VIDEO_RECEIVER.md`; source generation and video encoding remain in the separate lab.
 
 ```mermaid
 flowchart LR

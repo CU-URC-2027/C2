@@ -1,0 +1,11 @@
+# Local TCP video receiver
+
+October 28, 2026. User-authorized local prototype. The C2 process passively listens on `127.0.0.1:8874` (override `C2_VIDEO_TCP_PORT`) and relays received Annex B H.264 to Camera 01–05 through dedicated binary WebSockets. Start playback explicitly in Cameras; hiding the page/stopping a view releases its decoder. Existing priorities, control authority and snapshot/demo sources remain independent.
+
+`c2_web/video_wire.py` defines URV1 TCP records (12-byte prefix + 66-byte binary metadata + encoded frame) and URB1 browser messages (bounded JSON metadata + unchanged encoded bytes). `video_receiver.py` handles sequence/epoch validation, IDR/SPS/PPS startup, bounded viewer queues and acknowledgements. `api.py` adds `/api/live-video/state`, `/api/live-video/restart` and `/ws/video/{cam-01..cam-05}`. No receiver or video socket acquires motor authority; the original control WebSocket is separate. The development launcher disables redundant WebSocket compression.
+
+Receiver-to-viewer queues are limited to six frames / 4 MiB; oversized frames are rejected. Slow viewers resynchronize at an IDR or disconnect. Restarting the listener closes active TCP sessions and clears queued output; the sender reconnects with a fresh connection epoch. Browser presentation uses an 80 ms PTS buffer bounded to five frames and scales its canvas backing image to the visible monitor while decoding the original received resolution. Received, decoded and rendered FPS are separate. Native codec support is checked; unsupported configurations show errors.
+
+The standalone protocol/receiver may be moved to another C2 host later, but this version deliberately validates loopback addresses only. The priority return path and clock mapping also need explicit two-host configuration. Local monotonic source/receiver latency measurements are valid only in the declared same-host mode. No Wi-Fi, radio, Sigma, DDS or physical-device validation is implied.
+
+31 C2 tests, 42 original desktop tests and controller checks passed. An actual synthetic five-stream browser test also checked shared bandwidth reductions, outage/recovery and both TCP reconnect paths; evidence remains private in the separate lab artifacts. This receiver integration is local/uncommitted and was not pushed. Canonical/historical desktop sources were preserved.
