@@ -1,0 +1,31 @@
+name: Browser, NET5 and video prototype verification
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main, browser-ui-port, c2-net5-recovery]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  host-verification:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - name: Install hidden-window test dependencies
+        run: sudo apt-get update && sudo apt-get install -y python3-tk xvfb xauth g++
+      - name: Install locked Python dependencies
+        run: uv sync --frozen
+      - name: Run browser, video prototype, desktop, ROS host and native guard checks
+        run: xvfb-run -a uv run --frozen python scripts/verify.py

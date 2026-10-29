@@ -4,8 +4,70 @@ Command-and-control software for the CU URC rover team. C2 provides the operator
 interface for driving the chassis, requesting arm movement, and viewing rover
 telemetry, GPS and camera imagery.
 
-The current release is **prototype 0.5 / NET5**, a Python desktop application for bench
-testing. Development code is in [`c2_prototype/`](c2_prototype/).
+## Start the browser command station
+
+The browser UI is the primary development interface. Its Python backend includes
+the NET5 baseline now on `main` (`971aec7`), alongside the preserved desktop fallback
+and ROS workspace.
+
+Use Python 3.12 or 3.13 and `uv`. On this Mac, **Open C2.command** runs the same commands:
+
+```sh
+uv sync --frozen
+uv run python scripts/dev.py --open
+```
+
+Open <http://127.0.0.1:8870/#drive>. C2 starts disconnected and disarmed. In Connections,
+choose **Connect local mock**, then return to Drive and enable deliberately at neutral.
+A physical controller uses the browser Gamepad API; `pygame` is only needed by the
+legacy desktop controller adapter. Node.js 18+ is needed for verification, not to serve
+or build the browser UI.
+
+Drive includes a selectable large Camera 01–05 view and four smaller feeds beside the
+controls. The Cameras page shares those same decoder sessions, plus feed priorities
+and the original snapshot/demo sources. Start live playback explicitly; hiding the tab
+or leaving Drive/Cameras releases the decoders. Changing pages still disarms motion.
+The optional producer is in [`prototypes/video_pipeline/`](prototypes/video_pipeline/README.md)
+with a separate process/environment. C2 receives compatible H.264 over loopback TCP
+and never starts the producer implicitly.
+
+The HTTP service binds to `127.0.0.1:8870`, and the passive video receiver to
+`127.0.0.1:8874`. No LAN listener or external deployment is configured. The browser can
+exercise direct NET5 UDP, OC loopback, GPS tools, arm previews and optional ROS 2
+controls. Real hardware and DDS acceptance remain separate.
+
+```sh
+uv run python scripts/verify.py
+# Headless: --skip-gui (reports the omitted Tk checks)
+# Optional firmware compilation: --arduino-cli PATH [--arduino-config PATH]
+```
+
+This verifies browser API/control/video tests, controller/view lifecycle checks, all
+browser/prototype JavaScript syntax, hardware-free video prototype tests, NET5 tests and delayed-reply soak, ROS host tests, and native
+guard tests when a C++ compiler is present. GitHub Actions uses the same entry point
+with a virtual display. Firmware compilation is opt-in and never uploads.
+
+See [development setup](docs/DEVELOPMENT.md), [architecture](docs/ARCHITECTURE.md),
+[parity and boundaries](docs/PORT_PARITY.md), [receiver protocol](docs/VIDEO_RECEIVER.md),
+and [verification evidence](docs/VALIDATION.md). This AI-assisted engineering prototype
+requires human review, applicable course disclosure/approval and hardware validation.
+
+## Find video code and port an encoder
+
+Start with [the video component map and two-terminal demo](docs/VIDEO_SYSTEM.md).
+The [prototype README](prototypes/video_pipeline/README.md) explains what to run;
+the [hardware adapter guide](prototypes/video_pipeline/HARDWARE_ADAPTERS.md) names
+exact code seams, supported/untested backends and acceptance gates. The [shared
+protocol](packages/video_protocol/README.md) keeps sender/receiver framing in one place.
+Mac VideoToolbox has local test evidence; Intel QSV/Sigma requires hardware validation.
+Other GPU backends require an explicit adapter, not a new C2 UI.
+
+For coding agents, read [AGENTS.md](AGENTS.md) and the closest component's instructions.
+The producer stays experimental and separately launched; captures, native binaries,
+GStreamer registries and private logs are ignored. Unit/CI checks need no encoder GPU.
+
+The retained desktop fallback is **prototype 0.5 / NET5** in `c2_prototype/`.
+The following capability/setup sections describe that original bench application.
 
 ## Current capabilities
 
@@ -24,7 +86,7 @@ The app starts with chassis transport disconnected. The drawn rover and cyan
 path are a command-driven mathematical model, **not measured rover position**.
 RC input is currently emulated, not a physical receiver connection.
 
-## Quick start
+## Desktop fallback quick start
 
 Use Python 3.10 or later with Tkinter. From the repository root, using the Python
 environment you intend to run the app with:
@@ -83,7 +145,7 @@ Arm planning targets the **Nucleo-F446RE**, **DRV8825/NEMA 17 steppers**, and po
 - [ROS 2 and onboard-computer roadmap](c2_prototype/ROS2_INTERFACE_PLAN.md)
 - [Verification results and limitations](c2_prototype/TEST_RESULTS.md)
 
-## Verification
+## Desktop fallback verification
 
 NET5 verification includes **42 unit/integration tests and 21 GUI checks**,
 plus native C++ guard checks, a delayed-reply localhost soak test, and Uno R4 WiFi
