@@ -48,6 +48,18 @@ int main() {
   assert(!g.accept(other,600));
   assert(g.accept(other,1528));
   assert(!g.accept(command("ARM",14,g.epoch),1529));
+  C2Guard recovery;
+  assert(recovery.accept(command("HELLO",1,0),0));
+  assert(recovery.accept(command("ARM",2,recovery.epoch),1));
+  auto oldDrive=command("DRIVE",3,recovery.epoch,30,0);
+  recovery.networkLost();
+  assert(!recovery.enabled && recovery.stopped && !*recovery.session);
+  assert(!recovery.accept(oldDrive,2));
+  assert(recovery.accept(command("HELLO",1,0),3));
+  assert(!recovery.accept(command("ARM",2,recovery.epoch),4));
+  assert(recovery.accept(command("RESET",3,recovery.epoch),5));
+  assert(!recovery.enabled);
+  assert(recovery.accept(command("ARM",4,recovery.epoch),6));
   C2Guard wrap;
   assert(wrap.accept(command("HELLO",1,0),0xffffff00U));
   assert(wrap.accept(command("ARM",2,wrap.epoch),0xffffff80U));

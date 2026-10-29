@@ -90,26 +90,23 @@ only when its USB port is local to the C2 PC. A USB connection to a different PC
 needs a forwarding/ROS node; that remote bridge is a planned stage, not implemented.
 
 **Option B — one-board R4 wireless bench test:** the companion R4 sketch includes
-an opt-in Serial1 GPS relay. Matthew currently assigns D0 to the front-left encoder
-and D1 to OLED button C. Serial1 uses BOTH pins, even when GPS only transmits.
-Enabling it without physically freeing those pins creates a conflict.
+an opt-in Serial1 GPS relay. As of the 28 October `C2-NET3-20261028` revision,
+A2 is always the front-left encoder input and D10 is the single OLED page button.
+Sonar is inactive. GPS no longer changes the pin map.
 
-With power off, make this complete change together:
+With power off, verify these connections before enabling GPS:
 
-| Signal | Existing wiring | GPS option |
-|---|---|---|
-| Front-left encoder | D0 | Move to **A2** |
-| OLED button C | D1 | Move/isolate and reroute to **A3** |
-| Sonar trigger/echo | A2/A3 | Disconnect; sonar is disabled |
-| GPS TX | Unconnected | **D0 / RX1**, through suitable logic buffering if needed |
-| R4 D1 / TX1 | OLED button | Free, leave unconnected to three-wire GPS |
-| GPS VCC/GND | Unconnected | Regulated 3.3 V / common ground |
+| Signal | Revised wiring |
+|---|---|
+| Front-left encoder | **A2** (with GPS either on or off) |
+| OLED page button | **D10** |
+| GPS TX | **D0 / RX1**, with verified logic-level compatibility |
+| R4 D1 / TX1 | Leave unconnected to the three-wire GPS; no OLED button here |
+| GPS VCC/GND | Regulated 3.3 V / common ground |
 
-If the display/button shield hardwires D1, changing a macro alone does not free it;
-its connection must actually be isolated/rerouted. The tested R4 core maps A2 to
-external IRQ7, separate from the remaining front-right input D11/IRQ4. Verify
-front-left encoder counts after moving it. Rear D9/D13 interrupt support remains
-unavailable; this option does not fix that existing allocation issue.
+If a shield hardwires D1 to a button, physically isolate that connection before
+starting Serial1; software cannot reroute shield traces. The tested R4 core maps
+A2 to IRQ7 and D11 to IRQ4. Rear D9/D13 remain unavailable interrupt channels.
 
 The R4 uses 5 V GPIO. Do not assume every 3.3 V UART TX meets its input-high
 specification. A suitable buffer such as a 5 V powered 74AHCT125 can translate the
@@ -118,12 +115,12 @@ requirements. Never feed 5 V back into GPS. Confirm levels with the scope before
 connecting. The GPS supply itself remains 3.3 V.
 
 After wiring/level checks, set `C2_ENABLE_GPS` to **1** in `c2_config.h`, compile and
-upload. The firmware switches the two pin definitions and disables sonar. Connect
+upload. The firmware starts Serial1 without changing the revised pin map. Connect
 the rover in C2, then click **Use rover GPS**. Raw NMEA travels back over the same
 UDP connection, tagged with the active session; Python validates fix/checksum.
 GPS reception does not enable motors or refresh their command watchdog. Test GPS
 first with motor power isolated, then check interference with motors running raised.
-Return to the original physical wiring before turning this option off again.
+Turning GPS off leaves the revised A2 encoder/D10 button map unchanged.
 
 ## Comparing GPS with the C2 motion model
 

@@ -1,4 +1,17 @@
+# Current release: NET5
+
+See [recovery, local credentials, and bench acceptance](../../docs/NET5_RECOVERY.md).
+Use ignored `mini_rover_c2/wifi_credentials.local.h` for credentials. The notes below describe earlier setup; the NET5 release notes take precedence for network recovery and configuration.
+
 # Companion firmware and chassis protocol
+
+## 28 October pin-map correction
+
+Use the complete revised `mini_rover_c2` folder. Startup identifies it as
+`C2-NET3-20261028`: FL encoder A2, one OLED page button D10, and sonar inactive.
+The old default A2 sonar output is removed. GPS stays off by default; enabling it
+uses D0/D1 without moving the encoder or buttons. Encoder interrupts are attached before querying their allocated IRQ status. Motor pins, guarded protocol and stop limits are unchanged.
+Do not use the old frozen v0.4 firmware with the revised A2 encoder wiring.
 
 ## What to upload
 

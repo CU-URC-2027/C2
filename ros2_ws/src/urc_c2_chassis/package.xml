@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>urc_c2_chassis</name><version>0.1.0</version>
+  <description>C2 operator/dashboard and onboard chassis bridge prototype.</description>
+  <maintainer email="maintainers@example.invalid">CU URC C2 team (contact pending)</maintainer>
+  <license>LicenseRef-Proprietary</license>
+  <buildtool_depend>ament_python</buildtool_depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>urc_c2_interfaces</exec_depend>
+  <exec_depend>python3-tk</exec_depend>
+  <exec_depend>python3-pygame</exec_depend>
+  <test_depend>python3-pytest</test_depend>
+  <export><build_type>ament_python</build_type></export>
+</package>

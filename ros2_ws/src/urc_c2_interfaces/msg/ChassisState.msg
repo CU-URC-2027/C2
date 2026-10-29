@@ -1,0 +1,23 @@
+uint16 version
+string oc_boot
+string challenge
+string owner_session
+uint64 epoch
+uint64 accepted_sequence
+uint64 state_sequence
+bool supervisor_enabled
+bool stop_latched
+bool mcu_ready
+bool mcu_enabled
+bool mcu_stopped
+bool mock
+string reason
+float64 intent_age_s
+float64 mcu_age_s
+int32 applied_throttle_pwm
+int32 applied_steering_pwm
+# Order: FL, RL, FR, RR. Invalid entries must NOT be displayed as zero.
+uint32[4] encoder_counts
+bool[4] encoder_valid
+float64[4] encoder_count_rate
+bool[4] encoder_rate_valid

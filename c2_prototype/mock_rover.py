@@ -1,4 +1,5 @@
 """Loopback-only rover test endpoint. No GPIO, serial or motor access."""
+from collections import deque
 import json
 import socket
 import threading
@@ -13,6 +14,9 @@ class MockRover:
         self.port = self.sock.getsockname()[1]
         self.stop_event = threading.Event()
         self.silent = False
+        self.drop_commands = False
+        self.reply_delay = 0.0
+        self.pending_replies = deque()
         self.peer = None
         self.session = ""
         self.seq = 0
@@ -87,9 +91,14 @@ class MockRover:
                 now = time.monotonic()
                 if self.enabled and now-self.last_drive >= .25:
                     self.disable("COMMAND_TIMEOUT")
-                self.handle(data, address, now)
+                if not self.drop_commands:
+                    self.handle(data, address, now)
             except socket.timeout:
                 pass
+            except ConnectionResetError:
+                # Windows reports ICMP port-unreachable after a client closes.
+                # This is not a rover reboot: continue accepting new sessions.
+                continue
             except OSError:
                 break
             if self.peer and not self.silent and now-last_status >= .02:
@@ -99,11 +108,16 @@ class MockRover:
                            enabled=self.enabled, stopped=self.stopped, throttle=self.throttle,
                            steering=self.steering, encoders=None, reason=self.reason,
                            watchdog_ms=250, mock=True)
-                try:
-                    self.sock.sendto(json.dumps(row).encode(), self.peer)
-                except OSError:
-                    break
+                self.pending_replies.append((now+self.reply_delay, json.dumps(row).encode(), self.peer))
                 last_status = now
+            while self.pending_replies and self.pending_replies[0][0] <= time.monotonic():
+                _, data, peer = self.pending_replies.popleft()
+                try:
+                    self.sock.sendto(data, peer)
+                except ConnectionResetError:
+                    continue
+                except OSError:
+                    return
 
     def close(self):
         self.stop_event.set()

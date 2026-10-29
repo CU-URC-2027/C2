@@ -48,7 +48,7 @@ class Station:
         self.last = time.monotonic()
         self.sequence = 0
         self.previous_reason = None
-        root.title("URC C2 | Prototype 0.4 — rover link and live GPS")
+        root.title("URC C2 | Prototype 0.5 / NET5 — rover link and live GPS")
         root.geometry("1220x900")
         root.minsize(1060, 850)
         root.configure(bg="#10202d")
@@ -145,9 +145,9 @@ class Station:
         movement.columnconfigure(0, weight=1)
         movement.columnconfigure(1, weight=2)
         movement.rowconfigure(0, weight=1)
-        self.vector = tk.Canvas(movement, width=250, height=155, bg="#172e3f", highlightthickness=0)
+        self.vector = tk.Canvas(movement, width=250, height=110, bg="#172e3f", highlightthickness=0)
         self.vector.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
-        self.canvas = tk.Canvas(movement, width=600, height=155, bg="#172e3f", highlightthickness=0)
+        self.canvas = tk.Canvas(movement, width=600, height=110, bg="#172e3f", highlightthickness=0)
         self.canvas.grid(row=0, column=1, sticky="nsew")
         self.motion_status = ttk.Label(movement, text="")
         self.motion_status.grid(row=1, column=0, columnspan=2, sticky="w")
@@ -171,9 +171,9 @@ class Station:
         ttk.Label(telemetry, text="Cyan: reference path • Orange: GPS • Lines: time-matched differences\nA command-integrated path is not ground truth; wheel slip, timing and GPS noise all contribute.", wraplength=1000).pack(anchor="w", pady=6)
         output = ttk.LabelFrame(main, text="CHASSIS TRANSPORT / arm remains preview • model is not measured motion", padding=6)
         output.grid(row=2, column=0, columnspan=2, sticky="nsew", pady=4)
-        main.rowconfigure(1, weight=2, minsize=180)
-        main.rowconfigure(2, weight=1, minsize=100)
-        self.preview = tk.Text(output, height=5, width=45, bg="#172e3f", fg="#e3edf5", relief="flat", font=("Consolas", 10))
+        main.rowconfigure(1, weight=1, minsize=140)
+        main.rowconfigure(2, weight=3, minsize=210)
+        self.preview = tk.Text(output, height=10, width=45, bg="#172e3f", fg="#e3edf5", relief="flat", font=("Consolas", 10))
         preview_scroll = ttk.Scrollbar(output, command=self.preview.yview)
         preview_scroll.pack(side="right", fill="y")
         self.preview.config(yscrollcommand=preview_scroll.set)
@@ -541,12 +541,22 @@ class Station:
         self.gps_status.config(text=text)
         self.draw_track(self.gps_canvas, [(p[1], p[2]) for p in self.gps_pairs], [(p[3], p[4]) for p in self.gps_pairs])
 
+    def update_preview(self, text):
+        # Live status is a document, not an auto-scrolling terminal. Keep the
+        # reader's top visible line across refreshes (including wrapped lines).
+        top = self.preview.index("@0,0")
+        self.preview.config(state="normal")
+        self.preview.delete("1.0", "end")
+        self.preview.insert("end", text)
+        self.preview.yview(top)
+        self.preview.config(state="disabled")
+
     def loop(self):
         self._loop_after = None
         if self._closing:
             return
-        now = time.monotonic()
         self.poll_controller()
+        now = time.monotonic()  # Never use a timestamp from before a blocking input read.
         self.control.tick(now)
         if not self.drop.get():
             values = (self.throttle.get(), self.steering.get(), self.drive_hold or self.keyboard_hold)
@@ -566,6 +576,7 @@ class Station:
         if self.rover.fault and self.rover.connected:
             self.release()
             self.control.disarm(self.rover.fault)
+            self.hint.config(text="Connection fault: see CHASSIS TRANSPORT details below; save the run in Telemetry & Logs.")
             result = self.control.output(now)
         connection = self.rover.summary(now)
         self.link_status.config(text=connection)
@@ -595,15 +606,13 @@ class Station:
                    "turn_radps": round((result['right']-result['left'])/.5, 4)}
         result.update(sequence=self.sequence, monotonic_seconds=now, simulation=not self.rover.connected or self.mock_rover is not None,
                       motor_transport=mode, rover_state=dict(self.rover.state) if self.rover.state else None,
+                      rover_diagnostics=self.rover.diagnostics(now), rover_first_fault=self.rover.fault_snapshot,
                       input_mode=self.source.get(), input_throttle=self.throttle.get(), input_steering=self.steering.get(),
                       pose_model={"east_m": self.x, "north_m": self.y, "yaw_rad": self.heading}, onboard_request=request)
         self.records.append(result)
-        self.preview.config(state="normal")
-        self.preview.delete("1.0", "end")
-        self.preview.insert("end", connection + "\nChassis drive values: " + repr(result['legacy_drive_preview']) +
+        self.update_preview( connection + "\nChassis drive values: " + repr(result['legacy_drive_preview']) +
                             " • framed with session / sequence / watchdog protocol when connected\nArm request (NOT SENT): " + json.dumps(result['arm_preview']) +
                             "\nFuture OC velocity request (NOT SENT): " + json.dumps(request))
-        self.preview.config(state="disabled")
         for camera in self.cameras:
             camera.tick(now)
         self._loop_after = self.root.after(50, self.loop)

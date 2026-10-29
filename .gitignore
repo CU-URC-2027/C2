@@ -1,8 +1,13 @@
-.venv/
 __pycache__/
-.pytest_cache/
 *.pyc
+.venv/
+.pytest_cache/
 .DS_Store
+ros2_ws/build/
+ros2_ws/install/
+ros2_ws/log/
+captures/
+**/wifi_credentials.local.h
 data/
 artifacts/
 .env

@@ -64,6 +64,11 @@ class C2Guard {
     if (enabled || (latch && !stopped)) { ++epoch; if (!epoch) ++epoch; }
     enabled=false; throttle=steering=0; stopped=stopped||latch; reason=why;
   }
+  void networkLost() {
+    disable("WIFI_LOST", true);
+    session[0]=0; seq=0; lastOwner=0;
+    ++epoch; if (!epoch) ++epoch;
+  }
   void tick(uint32_t now) {
     if (enabled && uint32_t(now-lastDrive)>=timeoutMs) disable("COMMAND_TIMEOUT");
   }

@@ -3,7 +3,7 @@ import argparse
 import tkinter as tk
 from tkinter import ttk
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, PropertyMock
 import time
 import tempfile
 import json
@@ -30,6 +30,28 @@ class FocusRegression(unittest.TestCase):
 
     def set_focus(self, path):
         self.root.tk.setvar("test_focus", path)
+
+    def test_fault_details_display_and_recorded_snapshot(self):
+        self.app.rover.fault = 'Test missing acknowledgment'
+        self.app.rover.capture_fault(time.monotonic())
+        with patch.object(type(self.app.rover), 'connected', new_callable=PropertyMock, return_value=True), \
+                patch.object(self.app.rover, 'tick'):
+            self.app.loop()
+        self.assertIn('AT FIRST FAULT', self.app.preview.get('1.0', 'end'))
+        self.assertIn('Connection fault:', self.app.hint.cget('text'))
+        self.assertEqual(self.app.records[-1]['rover_first_fault']['fault'], 'Test missing acknowledgment')
+        json.dumps(self.app.records[-1]['rover_diagnostics'], allow_nan=False)
+
+    def test_diagnostics_scroll_position_survives_live_refresh(self):
+        text = "\n".join(f"Diagnostic line {i}" for i in range(100))
+        self.app.update_preview(text)
+        self.app.preview.yview("40.0")
+        before = self.app.preview.index("@0,0")
+        self.app.update_preview(text + "\nNew state")
+        self.assertEqual(before, self.app.preview.index("@0,0"))
+        self.assertGreater(int(before.split('.')[0]), 1)
+        self.assertEqual(self.app.preview.cget('state'), 'disabled')
+        self.assertGreaterEqual(int(self.app.preview.cget('height')), 10)
 
     def tearDown(self):
         if not self.app._closing:
