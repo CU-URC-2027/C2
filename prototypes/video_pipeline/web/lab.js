@@ -54,15 +54,15 @@ setInterval(lease,1500);lease();
 
 $('pause').onclick=async()=>{const button=$('pause');button.disabled=true;try{const running=state?.sources.some(s=>s.running)??false;sourcesWantRunning=!running;if(!sourcesWantRunning)clearPreviews();const response=await fetch('/api/sources',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({running:sourcesWantRunning})});if(!response.ok)throw new Error('Source operation failed');state=await response.json();render();}catch(error){toast(error.message);}finally{button.disabled=false;}};
 
-function render(){if(!state)return;const active=state.sources.filter(s=>s.running).length;
+function render(){if(!state)return;const replay=state.mode==='preencoded_test';$('camera-node').querySelector('h2').textContent=replay?'Pre-encoded camera bank':'Virtual camera bank';$('toggle').disabled=replay;$('bank-port-label').textContent=replay?'FIXTURES → OUTPUT ADAPTER':'RAW FRAME OUTPUTS →';$('bank-format-label').textContent=replay?'H.264 · replay · no audio':'NV12 · uncompressed · no audio';$('preview-status').title=replay?'Pre-encoded test bank: no raw camera generation':'';const active=state.sources.filter(s=>s.running).length;
   renderArchitecture(state.architecture);
   renderDecision(state.architecture?.encoding_decision);
   renderEncoder(state.architecture?.encoder);
   renderTransmission(state.architecture?.transmission);
   $('server-status').textContent='● Local lab connected';$('server-status').style.color='#7ea99c';
   $('bank-status').textContent=active?`${active} / 5 sources running`:'Video streams off';$('bank-dot').style.background=active?'#7bd5bf':'#8496a7';
-  $('preview-status').textContent=!active?'Generators stopped · no source workload':state.previews_enabled?'Preview conversion active':'Preview conversion off';$('pause').textContent=active?'Disable video streams':'Enable video streams';
-  const rate=state.sources.reduce((sum,s)=>sum+(s.running?s.raw_mb_s:0),0);$('total-rate').textContent=`${rate.toFixed(1)} MB/s raw source payload`;
+  $('preview-status').textContent=!active?replay?'Fixture bank off · no video workload':'Generators stopped · no source workload':state.previews_enabled?'Preview conversion active':replay?'PRE-ENCODED TEST · view received video in C2':'Preview conversion off';$('pause').textContent=active?'Disable video streams':'Enable video streams';
+  const rate=state.sources.reduce((sum,s)=>sum+(s.running?s.raw_mb_s:0),0);$('total-rate').textContent=replay?'Pre-encoded test fixtures · no raw pixel workload':`${rate.toFixed(1)} MB/s raw source payload`;
   for(const s of state.sources){$(`fps-${s.id}`).textContent=s.error?'ERROR':!s.running?'PAUSED':s.fps_actual?`${s.fps_actual.toFixed(1)} fps`:'STARTING';$(`fps-${s.id}`).classList.toggle('paused',!s.running);$(`meta-${s.id}`).textContent=`NV12 · PID ${s.process_pid??'—'} · #${String(s.sequence).padStart(6,'0')}`;$(`preview-frame-${s.id}`).textContent=!s.running?'SOURCE PAUSED':`SOURCE FRAME ${s.preview_sequence}`;if(s.error)toast(s.error);}
 }
 async function poll(){if(polling)return;polling=true;try{const response=await fetch('/api/state');if(!response.ok)throw new Error('No state');state=await response.json();render();}catch{$('server-status').textContent='● Local lab disconnected';$('server-status').style.color='#d68e8e';}finally{polling=false;}}

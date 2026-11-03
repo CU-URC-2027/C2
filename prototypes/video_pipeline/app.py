@@ -17,12 +17,13 @@ from transmission import TransmissionRuntime
 ROOT = Path(__file__).resolve().parent
 
 
-def create_app(bank=None, status_runtime=None, encoder_runtime=None):
+def create_app(bank=None, status_runtime=None, encoder_runtime=None, encoder_factory=None, transmission_options=None):
     bank = bank or Bank()
     status = status_runtime or StatusRuntime(bank.sources.keys())
     decision = DecisionRuntime(bank, status)
-    encoder = encoder_runtime or EncoderRuntime(bank, decision)
-    transmission = TransmissionRuntime(encoder, decision, status)
+    encoder = encoder_runtime or (encoder_factory(bank,decision) if encoder_factory else EncoderRuntime(bank, decision))
+    transmission = TransmissionRuntime(encoder, decision, status, **(transmission_options or {}))
+    if hasattr(status,'attach'):status.attach(decision,encoder,transmission)
 
     @asynccontextmanager
     async def lifespan(app):
@@ -139,6 +140,7 @@ def create_app(bank=None, status_runtime=None, encoder_runtime=None):
     @app.post("/api/encoding-decision/config")
     async def decision_config(request: Request):
         try:
+            if getattr(status,'allocation_external',False):raise ValueError('Video share is owned by the C2 ROS link budget')
             row = await request.json()
             if not isinstance(row, dict) or set(row) != {"video_share_percent"}:
                 raise ValueError("Supply only video_share_percent")
@@ -211,6 +213,7 @@ def create_app(bank=None, status_runtime=None, encoder_runtime=None):
         HTTP rawvideo does not carry capture timestamps; later architecture work
         must choose timestamp-preserving handoff before latency measurements.
         """
+        if hasattr(bank,'catalog'):raise HTTPException(409,'Pre-encoded test mode has no raw NV12 output')
         source = bank.sources.get(key)
         if not source:
             raise HTTPException(404, "Unknown source")

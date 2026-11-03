@@ -4,6 +4,7 @@ import test from 'node:test';
 import vm from 'node:vm';
 import {readController} from '../web/controller.mjs';
 import {initFileLogging} from '../web/file-logging.mjs';
+import {initVideoNetwork} from '../web/video-network.mjs';
 
 // Run the actual event bindings/rendering against a DOM/socket component harness.
 // No physical gamepad, network chassis, browser codec or OS focus is simulated here.
@@ -51,7 +52,7 @@ function harness() {
   const location={hash:'#drive',protocol:'http:',host:'127.0.0.1:8870'};
   let pad=null;
   vm.runInNewContext(readFileSync(new URL('../web/app.js',import.meta.url),'utf8').replace(/^import .*;\n/gm,''),{
-    readController,initFileLogging:(send,notice)=>initFileLogging(send,notice,document),initPriorities(){},renderPriorities(){},document,location,WebSocket:Socket,
+    readController,initFileLogging:(send,notice)=>initFileLogging(send,notice,document),initVideoNetwork:(send,notice)=>initVideoNetwork(send,notice,document),initPriorities(){},renderPriorities(){},document,location,WebSocket:Socket,
     navigator:{getGamepads:()=>[pad]},Option:class{},fetch:async()=>({json:async()=>[]}),
     addEventListener:(name,fn)=>events.set(name,fn),setInterval:fn=>intervals.push(fn),
     setTimeout(){return 1;},clearTimeout(){},performance,devicePixelRatio:1,

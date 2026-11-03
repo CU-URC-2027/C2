@@ -5,6 +5,11 @@ This directory contains runnable source, tests and guides. Captures, private log
 compiled workers, GStreamer registries and the original workspace are not included.
 It is a development harness with loopback transport, not an approved rover deployment.
 
+The separate [two-VM ROS video mode](../../docs/ROS2_VIDEO_VM.md) uses explicit private
+endpoints, typed ROS metadata and the same TCP media handoff. Pre-encoded fixtures
+allow all five browser feeds to be tested without a hardware encoder. The ordinary
+launch below retains its loopback defaults and hardware-encoding requirement.
+
 Start with [the repository component map](../../docs/VIDEO_SYSTEM.md) and [hardware
 adapter guide](HARDWARE_ADAPTERS.md). Coding agents must also read AGENTS.md.
 
@@ -50,7 +55,8 @@ See HARDWARE_ADAPTERS.md before installing/changing a driver stack.
 | Encoded output | `encoded_output.py`: immutable AUs, timestamps/session/IDR, bounded subscriptions |
 | Transmission | `transmission.py`, [TRANSMISSION.md](TRANSMISSION.md): real loopback TCP, shared pacing and reconnects |
 | Shared wire format | [packages/video_protocol](../../packages/video_protocol/README.md); local `video_wire.py` only imports it |
-| Optional ROS scaffold | `ros2/`, `ros2_status_adapter.py`, [ROS2_PORT.md](ROS2_PORT.md); not built or DDS-tested |
+| ROS video mode | `ros_status_runtime.py`, `ros_video_common.py`, `ros2/`; [two-VM guide](../../docs/ROS2_VIDEO_VM.md); Ubuntu/Jazzy VM-tested |
+| Explicit offline-media test | `make_fixtures.py`, `replay.py`; no runtime encoder or raw source allocation |
 
 Source identities remain Camera 01 (3840×2160 at 30 fps) and Camera 02–05
 (1920×1080 at 30 fps each), with distinct moving colored patterns. Full raw input
@@ -85,6 +91,7 @@ prototype's hardware-free tests in its own environment and checks its JavaScript
 Never commit local environments, captures, generated binaries, credentials or
 registries. Historical figures in the detailed guides describe the original Mac
 bench and do not validate a new machine. No Sigma throughput, radio loss, physical
-camera timing/quality, two-host clock mapping or DDS validation is implied. Substantive
+camera timing/quality or two-host clock mapping is implied. DDS evidence is scoped to
+the separate two-VM guide. Substantive
 human engineering input/review and applicable course AI disclosure/approval remain
 required before operational adoption or a team submission.

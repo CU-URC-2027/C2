@@ -6,6 +6,10 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/FeedPriorities.msg"
   "msg/BandwidthInput.msg"
   "msg/StatusInputs.msg"
+  "msg/VideoLinkBudget.msg"
+  "msg/CameraEncodingPlan.msg"
+  "msg/EncodingPlan.msg"
+  "msg/VideoHealth.msg"
 )
 ament_export_dependencies(rosidl_default_runtime)
 ament_package()

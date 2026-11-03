@@ -69,6 +69,12 @@ protocol](packages/video_protocol/README.md) keeps sender/receiver framing in on
 Mac VideoToolbox has local test evidence; Intel QSV/Sigma requires hardware validation.
 Other GPU backends require an explicit adapter, not a new C2 UI.
 
+For the opt-in two-computer video prototype, read [ROS 2 video VM setup](docs/ROS2_VIDEO_VM.md).
+It uses typed ROS metadata and direct H.264 TCP, with pre-encoded fixtures for hosts
+without an encoder GPU. Five browser feeds, bandwidth changes and reconnects were
+exercised across two Ubuntu/Jazzy VMs. Chassis behavior and the normal loopback launch
+remain unchanged; hardware encoding and radio acceptance are separate work.
+
 For coding agents, read [AGENTS.md](AGENTS.md) and the closest component's instructions.
 The producer stays experimental and separately launched; captures, native binaries,
 GStreamer registries and private logs are ignored. Unit/CI checks need no encoder GPU.

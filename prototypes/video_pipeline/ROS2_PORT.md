@@ -1,5 +1,14 @@
 # Porting the Status manager to ROS 2
 
+**November 3, 2026 update:** The integrated video experiment now builds the interface
+package and runs typed metadata plus direct H.264 TCP across two Ubuntu/Jazzy VMs.
+Use [the current two-VM setup and acceptance guide](../../docs/ROS2_VIDEO_VM.md),
+`ros_status_runtime.py`, `ros_video_common.py` and root `scripts/ros_video.py`.
+Pre-encoded replay exercises policy/transport without a hardware encoder. The older
+standalone adapter and October notes below are retained as design history; their
+unbuilt status no longer describes the integrated runner. Interfaces remain draft
+team contracts, and chassis ROS code/vendor pins are unchanged.
+
 October 27, 2026. The Mac lab runs without ROS 2. The optional adapter and message package are source scaffolding, **not a compiled or tested ROS 2 integration**. Proposed topic names and QoS are not a team-approved interface baseline.
 
 The standard-library `StatusManager` has no imports from FastAPI, FFmpeg, sockets, NumPy, or `rclpy`. The same `receive_priorities`, `receive_bandwidth`, and `snapshot` methods are used by both adapters:

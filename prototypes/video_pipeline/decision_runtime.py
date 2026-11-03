@@ -45,7 +45,8 @@ class DecisionRuntime:
         return dict(copy.deepcopy(self.core.last), process_pid=os.getpid(),
                     runtime_healthy=alive and age is not None and age < 1,
                     evaluation_age_s=age, runtime_error=error,
-                    allocation_source='Manual bench input standing in for future comms allocation')
+                    allocation_external=getattr(self.status,'allocation_external',False),
+                    allocation_source='C2 ROS comms/test budget' if getattr(self.status,'allocation_external',False) else 'Manual bench input standing in for future comms allocation')
 
     async def close(self):
         if self.task:

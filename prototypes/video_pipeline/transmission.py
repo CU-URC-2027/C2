@@ -103,7 +103,7 @@ class CameraSender:
                         'source_sequence':unit.source_sequence,'source_received_ns':str(unit.source_received_ns) if unit.source_received_ns is not None else None,
                         'pts_us':unit.pts_ns//1000,'width':unit.width,'height':unit.height,'keyframe':unit.keyframe,
                         'codec':'h264','format':'annexb','plan_revision':unit.requested_plan_revision,
-                        'sent_ns':str(time.monotonic_ns()),'clock_scope':'loopback_same_host'}
+                        'sent_ns':str(time.monotonic_ns()),'clock_scope':'loopback_same_host' if ipaddress.IPv4Address(self.owner.host).is_loopback else 'unmapped_remote'}
                     record=pack(meta,unit.data);self.inflight_bytes=len(record)
                     chunk_size=min(8192,max(512,int(self.owner.capacity()/8*.01)))
                     for at in range(0,len(record),chunk_size):
@@ -144,9 +144,13 @@ class CameraSender:
 
 
 class TransmissionRuntime:
-    def __init__(self,encoder,decision,status):
+    def __init__(self,encoder,decision,status,allowed_hosts=(),host='127.0.0.1',port=8874):
         self.encoder,self.decision,self.status=encoder,decision,status
-        self.host='127.0.0.1';self.port=8874;self.enabled=False;self.task=None
+        self.allowed_hosts={str(ipaddress.IPv4Address(h)) for h in allowed_hosts}
+        if any(not ipaddress.IPv4Address(h).is_private for h in self.allowed_hosts):
+            raise ValueError('Only private test peers are supported')
+        self.validate_destination(host,port)
+        self.host=host;self.port=port;self.enabled=False;self.task=None
         self.order=list(STREAM_IDS);self.video_share=70;self.plan_checked_at=0
         self.jobs={};self.previous={};self.events=deque(maxlen=30);self.bytes=deque(maxlen=10000)
         self.pacer=SharedPacer(self.capacity);self.lock=asyncio.Lock();self.error=None
@@ -160,10 +164,16 @@ class TransmissionRuntime:
             self.order=plan.get('inputs',{}).get('ordered_stream_ids',list(STREAM_IDS))
             self.plan_checked_at=now
     async def start(self):await self.pacer.start();self.task=asyncio.create_task(self.run())
+    def validate_destination(self,host,port):
+        address=ipaddress.IPv4Address(host)
+        if address.is_unspecified or address.is_multicast or not (address.is_loopback or str(address) in self.allowed_hosts):
+            raise ValueError('Use loopback or an explicitly allowed video destination')
+        if type(port) is not int or not 1024<=port<=65535:raise ValueError('Use a port from 1024 to 65535')
     async def configure(self,data):
         if not isinstance(data,dict) or not set(data)<= {'enabled','host','port'}:raise ValueError('Supply enabled, host and/or port')
         enabled=data.get('enabled',self.enabled);host=data.get('host',self.host);port=data.get('port',self.port)
-        if type(enabled) is not bool or not isinstance(host,str) or not ipaddress.IPv4Address(host).is_loopback or type(port) is not int or not 1024<=port<=65535:raise ValueError('Use a loopback IPv4 address, port 1024–65535 and Boolean enabled')
+        if type(enabled) is not bool or not isinstance(host,str):raise ValueError('Supply Boolean enabled and an IPv4 destination')
+        self.validate_destination(host,port)
         async with self.lock:
             if (host,port)!=(self.host,self.port) or not enabled:await self.stop_all()
             self.host,self.port,self.enabled=host,port,enabled
@@ -203,7 +213,7 @@ class TransmissionRuntime:
             'shared_video_capacity_bps':self.capacity(),'simulated_one_way_delay_ms':self.status.link.config.latency_ms,
             'max_queue_frames_per_camera':CameraSender.MAX_FRAMES,'max_queue_bytes_per_camera':CameraSender.MAX_BYTES,
             'frame_age_deadline_ms':CameraSender.MAX_AGE_S*1000,'cameras':rows,'error':self.error,'events':list(self.events),
-            'scope':'Real loopback TCP; shared application byte pacing/delay, not packet-loss emulation',
+            'scope':'Real TCP; explicit peers and shared application byte pacing; not packet-loss emulation',
             'protocol':'URV1 / Annex B H.264 / one TCP connection per camera'}
     async def close(self):
         self.enabled=False

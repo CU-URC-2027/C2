@@ -1,0 +1,14 @@
+uint32 schema_version
+string source_session
+uint64 sequence
+string priority_source_session
+uint64 priority_sequence
+uint64 priority_revision
+bool priorities_fresh
+bool budget_fresh
+bool transmission_enabled
+uint32 connected_streams
+uint64 sent_frames
+string execution_mode
+string pipeline_state
+string runtime_message

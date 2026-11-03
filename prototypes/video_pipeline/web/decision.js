@@ -6,7 +6,7 @@ export function initDecision(toast,layout){
   $('apply-video-share').onclick=async()=>{const button=$('apply-video-share');button.disabled=true;try{const value=Number($('video-share').value);if($('video-share').value.trim()===''||!Number.isFinite(value)||value<0||value>100)throw new Error('Use a video share from 0 to 100%');const response=await fetch('/api/encoding-decision/config',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({video_share_percent:value})});const result=await response.json();if(!response.ok)throw new Error(result.detail||'Cannot update allocation');edited=false;renderDecision(result);toast(`Video share set to ${value}%`);}catch(error){toast(error.message);}finally{button.disabled=false;}};
   $('toggle-plan').onclick=()=>{const opening=$('decision-json').hidden;$('decision-json').hidden=!opening;$('toggle-plan').setAttribute('aria-expanded',String(opening));$('toggle-plan').textContent=opening?'Hide plan contract':'Inspect plan contract';if(current)$('decision-json').textContent=JSON.stringify(current,null,2);layout('decision-node');};
 }
-export function renderDecision(plan){if(!plan)return;current=plan;const b=plan.budget,h=plan.hardware;
+export function renderDecision(plan){if(!plan)return;current=plan;$('video-share').disabled=$('apply-video-share').disabled=!!plan.allocation_external;const b=plan.budget,h=plan.hardware;
   if(!edited)$('video-share').value=plan.configuration.video_share_percent;
   $('plan-consumer').textContent=plan.encoder_connected?'REQUESTED PLAN → ENCODER ENABLED · ACTUAL RESULTS BELOW':'REQUESTED PLAN → ENCODER DISABLED';
   $('decision-process').textContent=`Lab PID ${plan.process_pid} · Python EncodingDecision`;

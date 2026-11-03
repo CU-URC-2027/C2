@@ -5,6 +5,11 @@ one repository, with separate processes and Python environments. The producer is
 a prototype, not the selected production rover implementation. The original local
 learning workspace, captures, private logs and built binaries are not included.
 
+**November 3 update:** [Two-VM ROS video](ROS2_VIDEO_VM.md) adds an explicit runner
+for typed priorities/budget/plan/health and private H.264 TCP, plus pre-encoded replay.
+The commands and diagram below still describe the default single-computer hardware
+demo. The new guide records actual Ubuntu/Jazzy VM tests and remaining hardware gates.
+
 ## Component map
 
 | Responsibility | Source | Change/test boundary |
@@ -72,9 +77,10 @@ disable transmission, encoding and source generation afterward to release the pr
 | TCP `127.0.0.1:8874` | C2 | Passive encoded-video receiver, one connection per feed |
 
 Start only one lab instance at a time; the original private lab uses these same ports.
-The sender and video receiver deliberately validate loopback only. Two computers
-require a separate deliberate LAN-bind/destination, reverse-priority and clock-domain
-change; changing the sender text field alone is insufficient. No LAN deployment,
+The default sender and video receiver validate loopback only. Two computers
+use the explicit ROS runner's peer/bind configuration and remote clock scope in the
+[VM guide](ROS2_VIDEO_VM.md); changing the default sender field alone is insufficient.
+The default launch remains loopback-only. No production LAN deployment,
 authentication or radio performance is established by this demonstration.
 
 ## Verification and evidence

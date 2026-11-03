@@ -12,6 +12,7 @@ describes code boundaries and acceptance work, not a claim of universal GPU supp
 | Linux VA-API | Possible `vah264enc` implementation | Requires an explicit new adapter and host validation; not selectable today |
 | NVIDIA NVENC | Possible `nvh264enc` implementation | Requires an explicit new adapter and host validation; not selectable today |
 | Native Windows media worker | POSIX pipe/control code is incompatible | Not supported; WSL/Linux GPU access also needs separate validation |
+| No GPU / VM transport test | Explicit `--fixtures` replay | Five feeds tested across Ubuntu/Jazzy VMs; no runtime encoding or rate-control validation; [setup](../../docs/ROS2_VIDEO_VM.md) |
 
 Factory availability, GPU generations and throughput are different facts. Inspect
 the installed element and actual device/driver on the target; do not assume an Ubuntu

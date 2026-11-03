@@ -1,5 +1,32 @@
 # Browser transition verification
 
+## Two-VM ROS video prototype — November 3, 2026
+
+Branch `feat/ros2-video-vm` starts from main `07b129d`. Two Ubuntu 24.04.5 ARM64
+Parallels guests built `urc_video_interfaces` and ran one Python/ROS process each:
+actual C2 backend and rover lab. Typed metadata crossed Fast DDS TCP/domain 198;
+five direct H.264 TCP streams returned to C2. The Mac browser decoded/rendered all
+five through explicit private development forwards to the VM backend. A guest NIC
+capture confirmed both metadata directions and 15 media connection epochs.
+
+All five browser feeds, 20/10 Mb/s allocations, 1 Mb/s primary-only, 400 kb/s emergency
+profile, zero-bandwidth stop/recovery, Camera 05 priority with other feeds omitted,
+sender/receiver reconnect, actual publisher pause/stale shutdown/resume and both
+process restarts passed. Restart defaults were off; subsequent five-feed playback
+passed. All 31 real H.264 fixture files passed independent dimensions/frame-count/
+no-B-frame inspection. Remote source ages remain unknown. Replay uses fixed recorded
+bitrate per profile, so it does not validate live encoder rate control.
+
+The final shared command passed **22 checks**, including **49 backend, 75 prototype,
+42 desktop, 21 GUI and 16 ROS chassis host tests**, browser/controller/lifecycle and
+JavaScript checks, 150 ms delayed loopback soak and native C++ guard tests. Canonical
+desktop, firmware, historical source, chassis ROS/vendor adapters and the pure video
+policy cores have no changes from main. No hardware encoder/motor/physical camera,
+radio, independent-host performance or synchronized latency result is claimed.
+Detailed setup, NumPy compatibility fix, QoS/ownership, cleanup and limits are in
+[ROS2_VIDEO_VM.md](ROS2_VIDEO_VM.md). Private artifacts stay ignored; services remain
+ready with source/replay/transmission/playback off after acceptance.
+
 ## Center sticks and opt-in file diagnostics — November 3, 2026
 
 Fetched/reviewed main against the local baseline: no newer commits beyond `c64a831`.
