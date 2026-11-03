@@ -23,6 +23,12 @@ A physical controller uses the browser Gamepad API; `pygame` is only needed by t
 legacy desktop controller adapter. Node.js 18+ is needed for verification, not to serve
 or build the browser UI.
 
+Experimental connection recovery, saved-rover discovery and a browser-selected
+0–100% PWM cap are described in [the paired branch guide](docs/CONNECTION_RECOVERY.md).
+Startup remains 25%; older firmware and the pinned ROS adapter retain their lower
+ceilings. The matching Arduino sketch is on its own experimental branch, with
+hardware validation pending.
+
 **Center sticks** resets virtual sliders and releases drive/jog holds; a physical
 gamepad must be centered by hand. To diagnose connection problems, open **Connections
 → Diagnostic file logging**, enter an existing folder on the Python backend computer

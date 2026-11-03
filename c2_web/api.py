@@ -88,7 +88,7 @@ def create_app(runtime=None, video_receiver=None):
 
     @app.get("/api/logs/first-fault")
     async def first_fault():
-        return jsonl([station.last_fault_snapshot] if station.last_fault_snapshot else [], "c2-first-fault.jsonl")
+        return jsonl([row["snapshot"] for row in station.fault_history]+([station.last_fault_snapshot] if station.last_fault_snapshot else []), "c2-first-fault.jsonl")
 
     @app.get("/api/logs/gps")
     async def gps_log():

@@ -1,5 +1,34 @@
 # Browser transition verification
 
+## Experimental connection/discovery/PWM pair — November 3, 2026
+
+`fix/connection-recovery-discovery` starts from main `07b129d`. It intentionally
+retains main's Arduino files; the matching firmware is isolated on
+`experimental/arduino-connection-pwm`. Read [the pair's contract and hardware
+gates](CONNECTION_RECOVERY.md). These are implementation branches awaiting review
+and physical acceptance, not a validated main release.
+
+The final shared command completed all 23 requested checks: **66 backend tests,
+72 video-prototype tests, seven center/logging/discovery UI harness checks, three
+video-view checks, controller/syntax checks, 42 desktop tests, 21 GUI checks,
+16 ROS host checks, a 150 ms delayed-reply loopback soak and native guard tests**.
+The backend tests include the production uvloop discovery path, delayed transition
+receiver/gamepad-loss regression, old disabled feedback, bounded retry deadlines,
+identity mismatch/busy-owner refusal, profiles and negotiated zero/full/mixed PWM.
+
+Actual Mac browser/mock testing found an independent loopback rover without claiming
+it, explicitly selected and verified its identity, saved its profile and reconnected
+disarmed at 25% with STOP preserved and Reset available. A deliberately selected
+100% cap and 600 ms mouse hold produced **11 returned full-range PWM samples at
+255**; centering/disarming returned zero. Temporary profiles, logs and screenshots
+remain ignored. The independent test mock was stopped after testing.
+
+The Arduino branch's complete Uno R4 WiFi sketch compiles using Renesas Uno 1.6.0
+and the library versions recorded in its guide (99,780 bytes flash, 12,504 bytes
+static RAM). No physical controller/MCU, firmware upload, LAN/radio, Windows,
+powered motion, stop-time measurement or DDS validation was performed. File logging
+and video workloads remain off; browser C2 is left disconnected/disarmed.
+
 ## Center sticks and opt-in file diagnostics — November 3, 2026
 
 Fetched/reviewed main against the local baseline: no newer commits beyond `c64a831`.

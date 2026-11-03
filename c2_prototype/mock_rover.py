@@ -4,10 +4,16 @@ import json
 import socket
 import threading
 import time
+import secrets
+from discovery_wire import parse_query
 
 
 class MockRover:
     def __init__(self):
+        self.device_id = "mock-"+secrets.token_hex(8)
+        self.boot_id = secrets.token_hex(8)
+        self.transition_delay = 0.0
+        self.max_pwm, self.advertise_pwm = 255, True
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind(("127.0.0.1", 0))
         self.sock.settimeout(.02)
@@ -40,12 +46,25 @@ class MockRover:
 
     def handle(self, data, address, now):
         from rover_link import packet
+        nonce = parse_query(data)
+        if nonce:
+            if self.enabled: return  # Match firmware's control-traffic priority.
+            self.sock.sendto(json.dumps(dict(v=1,type="c2_discovery",nonce=nonce,device_id=self.device_id,
+                boot_id=self.boot_id,build="python-mock-recovery-v1",control_protocol="C2V1",control_port=self.port,
+                watchdog_ms=250,busy=bool(self.enabled or (self.session and now-self.last_owner<1)),
+                enabled=self.enabled,stopped=self.stopped)).encode(),address)
+            return
+        if self.transition_delay and data.split(b",")[4:5] not in ([b"PING"],[b"DRIVE"]):
+            time.sleep(self.transition_delay)
+            now=time.monotonic()
+            if self.enabled and now-self.last_drive>=.25: self.disable("COMMAND_TIMEOUT")
         try:
             marker, session, seq, epoch, op, t, s = data.decode("ascii").strip().split(",")
             seq, epoch, t, s = map(int, (seq, epoch, t, s))
             if marker != "C2V1":
                 return
             packet(session, seq, epoch, op, t, s)  # same envelope limits
+            if max(abs(t+s),abs(t-s))>self.max_pwm: return
         except (ValueError, UnicodeError):
             return
         if op == "HELLO" and session != self.session:
@@ -104,10 +123,12 @@ class MockRover:
             if self.peer and not self.silent and now-last_status >= .02:
                 self.state_id += 1
                 row = dict(v=1, type="state", fw="c2-guard-v1", session=self.session,
+                           device_id=self.device_id,boot_id=self.boot_id,build="python-mock-recovery-v1",
                            seq=self.seq, epoch=self.epoch, state_id=self.state_id,
                            enabled=self.enabled, stopped=self.stopped, throttle=self.throttle,
                            steering=self.steering, encoders=None, reason=self.reason,
                            watchdog_ms=250, mock=True)
+                if self.advertise_pwm: row["max_pwm"]=self.max_pwm
                 self.pending_replies.append((now+self.reply_delay, json.dumps(row).encode(), self.peer))
                 last_status = now
             while self.pending_replies and self.pending_replies[0][0] <= time.monotonic():

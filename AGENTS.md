@@ -5,6 +5,11 @@ The reviewed backend baseline is main / NET5 `971aec7` (October 29, 2026). Prese
 canonical `c2_prototype/`, the historical `C2-team/` copy and documented ROS vendor pins
 unless the task explicitly changes those components. Do not silently port NET5 into ROS.
 
+This experimental host branch deliberately changes the canonical Control/UDP/mock
+boundary for confirmed disarm and negotiated PWM. Its matching Arduino changes are
+isolated on `experimental/arduino-connection-pwm`; read docs/CONNECTION_RECOVERY.md.
+Do not silently bring that sketch into this branch or update the pinned ROS adapters.
+
 ## Where changes belong
 
 | Task | Location / first read |
@@ -39,6 +44,13 @@ credentials, local environments, absolute personal paths or compiled binaries.
   Keep file opening/serialization/writes off the control loop and settings requests
   nonblocking for WebSocket INPUT. Preserve bounded queues, visible loss/errors,
   exclusive file creation and normal-shutdown flush. Never commit diagnostic logs.
+- Discovery is explicit/bounded/read-only and never renews ownership/input, clears
+  STOP or enables. Verify selected identity in guarded feedback; do not auto-select
+  a first response or take over a busy rover. Settings/profiles stay in ignored data/.
+- Preserve shutdown's original sequence barrier/deadline across repeats/retries.
+  PWM starts at 25%, respects advertised/legacy/ROS ceilings and uses mixed-wheel
+  quantization bounds; increasing it while enabled disarms. No hardware validation
+  or uploads are implied by host tests or a firmware build.
 
 ## Verify and report
 
