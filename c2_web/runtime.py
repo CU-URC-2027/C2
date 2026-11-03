@@ -14,6 +14,7 @@ from .legacy import integrate_pose, compare_log, metrics, ROOT
 from .inputs import GPSInput, fetch_snapshot
 from .priorities import VideoPriorities
 from .onboard import OnboardOperator, ros_available, CLAIM, ENABLE, RESET
+from .file_logging import DiagnosticLog
 from urc_c2_chassis.policy import EncoderRates
 
 
@@ -62,6 +63,8 @@ class Runtime:
         self.path = deque(maxlen=1000)
         self.history = deque(maxlen=200)
         self.records = deque(maxlen=12000)
+        self.file_log = DiagnosticLog(ROOT)
+        self.log_task = None
         self.events = deque(maxlen=100)
         self.previous_reason = None
         self.gps = GPSData()
@@ -79,10 +82,13 @@ class Runtime:
         self.event("Command station ready. Controls start disarmed.")
 
     def event(self, text, kind="info"):
-        self.events.appendleft({"time_s": round(self.clock() - self.started, 2), "text": text, "kind": kind})
+        row = {"time_s": round(self.clock() - self.started, 2), "text": text, "kind": kind}
+        self.events.appendleft(row)
+        self.file_log.submit("event", row)
 
     def register(self, client):
         self.clients.add(client)
+        self.file_log.submit("browser_session", {"event": "connected", "client": client})
         if self.owner is None:
             self.claim(client)
 
@@ -97,6 +103,7 @@ class Runtime:
 
     def unregister(self, client):
         self.clients.discard(client)
+        self.file_log.submit("browser_session", {"event": "disconnected", "client": client})
         if self.owner == client:
             self.disarm("Operator browser disconnected")
             self.owner = None
@@ -141,6 +148,39 @@ class Runtime:
             self.onboard.input(t, s, data.get("deadman", False), self.control.speed_limit)
 
     async def action(self, client, name, data):
+        # Allowlist diagnostic parameters: never log imported JSONL, snapshot URLs
+        # (which can contain credentials), arbitrary content or video payloads.
+        action_name = name[:80] if isinstance(name, str) else "invalid_action"
+        keys = {"connect": ("mode", "host", "port", "namespace"), "input_mode": ("mode",),
+                "input": ("seq", "throttle", "steering", "deadman", "jog", "gamepad_connected"),
+                "disarm": ("reason",),
+                "joint": ("joint",), "speed_limit": ("value",),
+                "mock_options": ("reply_delay_ms", "drop_commands")}.get(action_name, ())
+        details = clean({key: data[key][:256] if isinstance(data[key], str) else
+                         data[key] if type(data[key]) in (bool, int, float, type(None)) else "invalid_value"
+                         for key in keys if key in data})
+        context = {"client": client, "action": action_name, "parameters": details}
+        if name not in ("input", "heartbeat"):
+            self.file_log.submit("action_request", context)
+        try:
+            result = await self._action(client, name, data)
+        except (ValueError, TypeError, KeyError, OSError) as exc:
+            self.file_log.submit("action_rejected", context | {"error": str(exc),
+                                 "error_type": type(exc).__name__, "diagnostics": self.log_context()})
+            raise
+        if name not in ("input", "heartbeat"):
+            self.file_log.submit("action_result", context | {"result": result, "diagnostics": self.log_context()})
+        return result
+
+    def log_context(self):
+        return clean({"mode": self.mode, "owner": self.owner, "input_mode": self.input_mode,
+                      "input_seq": self.input_seq, "input_age_s": self.clock()-self.last_input,
+                      "input_paused": self.input_paused, "control": self.control.output(self.clock()),
+                      "rover_diagnostics": self.link.diagnostics(self.clock()),
+                      "rover_fault": self.link.fault, "first_fault": self.last_fault_snapshot,
+                      "onboard": self.onboard.state() if self.onboard else None})
+
+    async def _action(self, client, name, data):
         if client not in self.clients:
             raise ValueError("Browser session is disconnected")
         if name == "claim":
@@ -157,6 +197,25 @@ class Runtime:
             return None
         if name == "heartbeat":
             return None
+        if name == "file_logging":
+            if type(data.get("enabled")) is not bool:
+                raise ValueError("Logging enabled must be true or false")
+            if self.log_task and not self.log_task.done():
+                raise ValueError("File logging is still starting or stopping")
+            initial = self.log_context()
+            async def configure():
+                try:
+                    if data["enabled"]:
+                        await asyncio.to_thread(self.file_log.start, data.get("directory"), initial)
+                    else:
+                        await asyncio.to_thread(self.file_log.stop)
+                    self.event("File logging enabled" if self.file_log.enabled else "File logging off")
+                except ValueError as exc:
+                    self.event(str(exc), "error")
+            # Return immediately so this WebSocket can keep receiving fresh INPUT
+            # while a folder/network disk is being opened or flushed.
+            self.log_task = asyncio.create_task(configure())
+            return "Starting file logging" if data["enabled"] else "Stopping file logging"
         if name == "release":
             self.disarm("Browser released controls")
             self.owner = None
@@ -413,7 +472,7 @@ class Runtime:
                                    "simulation": ((self.onboard.state()["state"] or {}).get("mock") if self.onboard else not self.link.connected or self.mock is not None),
                                    "motor_transport": self.mode,
                                    "receipt_utc": datetime.now(timezone.utc).isoformat(),
-                                   "receipt_monotonic_s": now, "input": dict(self.input),
+                                   "receipt_monotonic_s": now, "input": dict(self.input), "input_seq": self.input_seq,
                                    "input_mode": self.input_mode,
                                    "input_throttle": self.input["throttle"], "input_steering": self.input["steering"],
                                    "mode": self.mode, "operator_input_age_s": now-self.last_input,
@@ -424,6 +483,7 @@ class Runtime:
                                    "onboard_request_preview": self.onboard_preview(result),
                                    "onboard_request": self.onboard_preview(result),
                                    "pose_model": dict(zip(("east_m", "north_m", "yaw_rad"), self.pose))}))
+        self.file_log.submit("tick", self.records[-1])
         if self.sequence % 2 == 0:
             self.history.append({"t": now-self.started, "left": result["left"], "right": result["right"],
                                  "rtt": self.link.rtt_ms})
@@ -490,6 +550,7 @@ class Runtime:
                         {"age_s": now-cam["received"] if cam["received"] is not None else None}
                         for cam in self.cameras.values()],
             "events": list(self.events), "log_rows": len(self.records),
+            "file_logging": self.file_log.state() | {"configuring": bool(self.log_task and not self.log_task.done())},
             "capabilities": {"arm": "preview", "battery": "unavailable", "odometry": "model", "ros2": "available" if ros_available() else "runtime unavailable"},
         })
 
@@ -519,3 +580,6 @@ class Runtime:
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+        if self.log_task:
+            await asyncio.gather(self.log_task, return_exceptions=True)
+        await asyncio.to_thread(self.file_log.stop, "Backend shutdown")

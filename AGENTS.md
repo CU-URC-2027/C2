@@ -35,6 +35,10 @@ credentials, local environments, absolute personal paths or compiled binaries.
   physical devices, firmware uploads and powered tests require deliberate task scope.
 - Test with local mocks/synthetic media. Keep arm/RC/model/encoder-validity and measured
   vs requested states explicit. Host/Mac tests do not establish DDS or field readiness.
+- File diagnostics default OFF and use an owner-selected existing backend folder.
+  Keep file opening/serialization/writes off the control loop and settings requests
+  nonblocking for WebSocket INPUT. Preserve bounded queues, visible loss/errors,
+  exclusive file creation and normal-shutdown flush. Never commit diagnostic logs.
 
 ## Verify and report
 

@@ -1,5 +1,29 @@
 # Browser transition verification
 
+## Center sticks and opt-in file diagnostics — November 3, 2026
+
+Fetched/reviewed main against the local baseline: no newer commits beyond `c64a831`.
+Changes are scoped to virtual Center sticks and local file logging; the earlier
+unpublished control-parity proposal was not merged/cherry-picked. Canonical desktop,
+firmware, ROS adapters, video producer and shared protocol remain unchanged.
+
+The shared verification command passed the backend, video prototype, controller,
+four center/logging UI harness checks, three video-view lifecycle checks, JavaScript
+syntax, desktop unit/Tk GUI and ROS host checks, delayed-reply soak and native guard.
+File-logger checks include existing/unwritable/bad destinations, unique non-overwriting
+files, bounded-queue gap markers, disk failure, slow start with independent input
+processing, capture of failed connection/Enable/ACK loss, browser disconnect, shutdown
+footer and restart default-off. These checks use local mocks and temporary files.
+
+Actual in-app browser verification exercised an invalid folder (visible error),
+explicit logging to an existing chosen folder, local mock connection, refused Enable
+with non-neutral input, Center sticks to zero, deliberate Enable, a 600 ms mouse hold
+with nonzero returned mock PWM, release, disarm, stop/flush and disconnect. The saved
+test JSONL parsed as **804 records**, with **12 nonzero returned-PWM samples**, one
+refused Enable, a session-end footer and **zero dropped records**. This is loopback
+evidence, not physical motion/controller, Windows filesystem or DDS acceptance.
+Screenshots and test logs remain ignored local artifacts. Logging/video are left off.
+
 ## Repository packaging and main integration — October 29, 2026
 
 Main now includes NET5 `971aec7`; the browser branch already contains it. A curated

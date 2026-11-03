@@ -1,5 +1,6 @@
 import {readController} from './controller.mjs';
 import {initPriorities,renderPriorities} from './priorities.mjs';
+import {initFileLogging} from './file-logging.mjs';
 const $ = id => document.getElementById(id);
 const fmt = (v, digits=2, suffix='') => Number.isFinite(v) ? `${v.toFixed(digits)}${suffix}` : '—';
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -14,6 +15,7 @@ const pages = {
 };
 let ws, client, state, page='drive', seq=0, request=0, reconnect, noticeTimer;
 let axes={throttle:0,steering:0,jog:0,deadman:false}, keys=new Set(), pointerHold=false, gamepadConnected=false;
+const releasedKeys=new Set();
 let pointerStick=null, snapshotTime=0, lastStateAt=0;
 const pending=new Map();
 
@@ -36,17 +38,19 @@ function send(action, data={}, acknowledge=true) {
   });
 }
 function act(action,data={}) { return send(action,data).catch(()=>{}); }
-function zero(disarm=true) {
+function zero(disarm=true, reason='operator_release') {
+  for(const key of keys)releasedKeys.add(key);
   axes={throttle:0,steering:0,jog:0,deadman:false};keys.clear();pointerHold=false;pointerStick=null;
   $('throttle-slider').value=$('steering-slider').value='0';
+  for(const id of ['throttle-slider-value','steering-slider-value','throttle-value','steering-value'])text(id,'0.00');
   $('stick').style.transform='translate(0,0)';$('deadman').classList.remove('pressed');
   if (client && ws?.readyState===WebSocket.OPEN && state?.owner===client) {
-    input(); if(disarm) act('disarm');
+    input(); if(disarm) act('disarm',{reason});
   }
 }
 function route() {
   const next=location.hash.slice(1) in pages ? location.hash.slice(1) : 'drive';
-  if(next!==page) zero(); page=next;
+  if(next!==page) zero(true,'page_change'); page=next;
   document.querySelectorAll('.page').forEach(el=>el.classList.toggle('active',el.id===`page-${page}`));
   document.querySelectorAll('[data-route]').forEach(el=>el.classList.toggle('active',el.dataset.route===page));
   text('page-title',pages[page][0]);text('page-subtitle',pages[page][1]);text('breadcrumb',pages[page][0].toUpperCase());
@@ -99,15 +103,16 @@ function input() {
   $('deadman').classList.toggle('pressed',axes.deadman);
 }
 setInterval(input,50);
-addEventListener('blur',()=>zero());
-document.addEventListener('visibilitychange',()=>{if(document.hidden)zero();});
-addEventListener('pagehide',()=>zero());
+addEventListener('blur',()=>zero(true,'window_blur'));
+document.addEventListener('visibilitychange',()=>{if(document.hidden)zero(true,'tab_hidden');});
+addEventListener('pagehide',()=>zero(true,'page_exit'));
 addEventListener('keydown',event=>{
   if(event.code==='Escape'){event.preventDefault();zero(false);act('stop');return;}
   if(page!=='drive'||event.target.matches('input:not([type=range]),select,textarea'))return;
-  if(['KeyW','KeyA','KeyS','KeyD','Space'].includes(event.code)){event.preventDefault();keys.add(event.code);}
+  if(['KeyW','KeyA','KeyS','KeyD','Space'].includes(event.code)){event.preventDefault();if(!releasedKeys.has(event.code)&&!event.repeat)keys.add(event.code);}
 });
 addEventListener('keyup',event=>{
+  releasedKeys.delete(event.code);
   if(keys.has(event.code)){event.preventDefault();keys.delete(event.code);if(['KeyW','KeyS'].includes(event.code))axes.throttle=0;if(['KeyA','KeyD'].includes(event.code))axes.steering=0;input();}
 });
 function hold(element,on,off) {
@@ -126,17 +131,19 @@ function stickMove(e){if(pointerStick!==e.pointerId)return;const r=joystick.getB
 joystick.addEventListener('pointermove',stickMove);
 for(const name of ['pointerup','pointercancel','lostpointercapture'])joystick.addEventListener(name,()=>{pointerStick=null;axes.throttle=axes.steering=0;input();});
 document.querySelectorAll('[data-action]').forEach(b=>b.addEventListener('click',()=>{if(['stop','disarm','reset_model'].includes(b.dataset.action))zero(false);act(b.dataset.action);}));
+$('center-sticks').onclick=()=>{if(state?.owner===client&&state.input_mode!=='gamepad')zero(false);};
 $('ownership').onclick=()=>act(state?.owner===client?'release':'claim');
-$('input-mode').onchange=()=>{zero();act('input_mode',{mode:$('input-mode').value});};
+$('input-mode').onchange=()=>{zero(true,'input_source_changed');act('input_mode',{mode:$('input-mode').value});};
 $('speed').oninput=()=>text('speed-value',`${$('speed').value}%`);
 $('speed').onchange=()=>act('speed_limit',{value:Number($('speed').value)/100});
 for(const key of ['throttle','steering']) $(`${key}-slider`).oninput=()=>{axes[key]=Number($(`${key}-slider`).value);input();};
-for(const id of ['controller-stick','raw-throttle','raw-steering','raw-hold'])$(id).onchange=()=>zero();
-$('controller-rescan').onclick=()=>zero();
+for(const id of ['controller-stick','raw-throttle','raw-steering','raw-hold'])$(id).onchange=()=>zero(true,'controller_mapping_changed');
+$('controller-rescan').onclick=()=>zero(true,'controller_rescan');
 $('connect-oc').onclick=()=>{zero();act('connect',{mode:'oc-mock'});};
 $('connect-ros').onclick=()=>{zero();act('connect',{mode:'ros2',namespace:$('ros-namespace').value.trim()});};
 $('mock-apply').onclick=()=>act('mock_options',{reply_delay_ms:Number($('mock-delay').value),drop_commands:$('mock-drop').value==='true'});
 initPriorities(send,notice);
+const renderFileLogging=initFileLogging(send,notice);
 $('joint').onchange=()=>{axes.jog=0;act('joint',{joint:$('joint').value});};
 $('connect-mock').onclick=()=>{zero();act('connect',{mode:'mock'});};
 $('connect-udp').onclick=()=>{zero();act('connect',{mode:'udp',host:$('rover-host').value.trim(),port:Number($('rover-port').value)});};
@@ -147,6 +154,7 @@ $('comparison-file').onchange=async()=>{const file=$('comparison-file').files[0]
 
 function render(s) {
   const mine=s.owner===client, c=s.control, r=s.rover, g=s.gps;
+  renderFileLogging(s.file_logging,mine);
   const modeLabel=({'model':'MODEL ONLY','mock':'NET5 LOCAL MOCK','udp':'NET5 CHASSIS UDP','oc-mock':'OC LOOPBACK','ros2':'ONBOARD ROS 2'})[s.mode]||s.mode;
   text('mode-tag',modeLabel);renderPriorities(s.video_priorities,mine);
   const seconds=Math.floor(s.uptime_s);text('uptime',`T+${String(Math.floor(seconds/60)).padStart(2,'0')}:${String(seconds%60).padStart(2,'0')}`);
@@ -156,6 +164,8 @@ function render(s) {
   $('enable').disabled=!mine||page!=='drive'||c.enabled||c.stop_latched||(r.connected&&!r.enable_ready);$('reset-stop').disabled=!mine||!c.stop_latched;
   document.querySelectorAll('[data-action="disarm"], [data-action="stop"]').forEach(b=>b.disabled=false);
   for(const id of ['input-mode','speed','joint','arm-mode','connect-mock','connect-udp','connect-oc','gps-connect','input-pause'])$(id).disabled=!mine;
+  $('center-sticks').disabled=!mine||s.input_mode==='gamepad';
+  $('center-sticks').title=s.input_mode==='gamepad'?'Return the physical stick to neutral and release LB/L1; a button cannot center hardware':'Center virtual inputs and release drive/jog holds';
   document.querySelectorAll('.jog').forEach(b=>b.disabled=!mine||!s.arm_mode||!c.enabled);
   $('mock-silent').disabled=$('mock-apply').disabled=!mine||s.mode!=='mock';$('claim-oc').disabled=!mine||!s.onboard;$('connect-ros').disabled=!mine||!s.ros2_available;$('throttle-slider').disabled=$('steering-slider').disabled=!mine||s.input_mode==='gamepad';
   text('ros-availability',s.ros2_available?'ROS 2 interfaces available in this Python environment':'ROS 2/DDS unavailable here; OC loopback exercises the same upstream Python supervisor on this Mac.');
@@ -217,4 +227,4 @@ function renderCameras(s){
   }
   if(refresh)snapshotTime=performance.now();
 }
-setInterval(()=>{if(state&&performance.now()-lastStateAt>1500){zero();notice('State updates stalled. Controls disarmed.',true);}},1000);
+setInterval(()=>{if(state&&performance.now()-lastStateAt>1500){zero(true,'state_updates_stalled');notice('State updates stalled. Controls disarmed.',true);}},1000);

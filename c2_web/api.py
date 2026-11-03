@@ -170,6 +170,8 @@ def create_app(runtime=None, video_receiver=None):
                     if request_id is not None:
                         await send({"type": "ack", "request_id": request_id, "ok": True, "message": result or "Accepted"})
                 except (ValueError, TypeError, KeyError, OSError, json.JSONDecodeError) as exc:
+                    station.file_log.submit("websocket_error", {"client": client, "action": action[:80] if isinstance(action, str) else None,
+                        "error_type": type(exc).__name__, "error": str(exc)[:1000]})
                     if station.owner == client and action in ("input", "enable", None):
                         station.disarm("Invalid browser command; enable again")
                     await send({"type": "ack", "request_id": request_id, "ok": False,
