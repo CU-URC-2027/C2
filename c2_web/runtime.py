@@ -200,7 +200,7 @@ class Runtime:
     def log_context(self):
         return clean({"mode": self.mode, "owner": self.owner, "input_mode": self.input_mode,
                       "input_seq": self.input_seq, "input_age_s": self.clock()-self.last_input,
-                      "input_paused": self.input_paused, "control": self.control.output(self.clock()),
+                      "input_paused": self.input_paused, "control": self.direct_control_output(self.clock()),
                       "browser_input": self.browser_input, "last_valid_input_seq": self.last_valid_input_seq,
                       "rover_diagnostics": self.link.diagnostics(self.clock()),
                       "rover_fault": self.link.fault, "first_fault": self.last_fault_snapshot,
@@ -267,7 +267,9 @@ class Runtime:
                 except (ValueError, OSError):
                     self.disarm("Rover did not accept enable")
                     raise
-            self.event("Enable requested; hold drive to move")
+            if self.link.connected:
+                self.control.reason = "Enable requested; waiting for rover confirmation"
+            self.event(self.control.reason)
         elif name == "reset_stop":
             if self.onboard:
                 self.onboard.command(RESET)
@@ -489,7 +491,14 @@ class Runtime:
             self.disarm("Browser session expired")
             self.owner = None
         result = self.control.output(now)
+        enable_was_pending = self.link.pending_arm is not None
         self.link.tick(result, now)
+        if (enable_was_pending and not self.link.pending_arm and self.control.armed
+                and self.link.ready(now) and self.link.state["enabled"]):
+            self.control.reason = "Rover confirmed enabled; hold drive control to move"
+            self.event(self.control.reason)
+        if self.link.connected:
+            result = self.direct_control_output(now)
         self.video.tick()
         if self.onboard:
             self.onboard.source_label = self.input_mode
@@ -501,7 +510,7 @@ class Runtime:
             result = self.control.output(now)
         if self.link.fault and self.link.connected:
             self.control.disarm(self.link.fault)
-            result = self.control.output(now)
+            result = self.direct_control_output(now)
         if self.link.fault_snapshot:
             self.last_fault_snapshot = self.link.fault_snapshot
         if self.link.ready(now) and self.link.state:
@@ -581,6 +590,19 @@ class Runtime:
                 and not self.link.state["enabled"] and not self.link.state["stopped"]
                 and self.link.sent_ops.get(self.link.state["seq"]) not in (None, "HELLO"))
 
+    def direct_control_output(self, now):
+        result = self.control.output(now)
+        if self.link.connected:
+            result["enable_requested"] = self.control.armed
+            confirmed = (self.link.ready(now) and not self.link.pending_arm
+                         and not self.link.disarm_pending and self.link.state["enabled"])
+            result["enabled"] = self.control.armed and confirmed
+            if not result["enabled"]:
+                result.update(left=0, right=0, legacy_drive_preview="0,0\n")
+            if self.link.pending_arm:
+                result["reason"] = "Enable requested; waiting for rover confirmation"
+        return result
+
     def pwm_limit_max(self):
         if self.onboard: return .25  # Pinned ROS/onboard policy remains unchanged.
         return min(1.0,self.link.pwm_ceiling()/255) if self.link.connected else 1.0
@@ -625,7 +647,7 @@ class Runtime:
 
     def state(self):
         now = self.clock()
-        result = self.control.output(now)
+        result = self.direct_control_output(now)
         if self.link.connected and self.link.state:
             result["stop_latched"] = result["stop_latched"] or self.link.state["stopped"]
         fresh = self.gps.fresh(now) and self.gps_mode != "disconnected" and not self.gps_error

@@ -58,6 +58,8 @@ class RoverLink:
         self.gps_lines = []
         self.description = "SIMULATION • motor transport disconnected"
         self.expected_device_id = None
+        self.detail_state = None
+        self.detail_received = -math.inf
 
     @property
     def connected(self):
@@ -128,7 +130,7 @@ class RoverLink:
             raise ValueError("Rover STOP is latched; Reset STOP and wait for confirmation")
         if self.state["enabled"] or self.disarm_pending:
             raise ValueError("Wait for rover to confirm disabled, then enable again")
-        self.pending_arm = (self.send("ARM", now=now), now)
+        self.pending_arm = (self.send("ARM", now=now), now, self.state["epoch"])
 
     def disable(self, latch=False, now=None):
         now = time.monotonic() if now is None else now
@@ -210,12 +212,17 @@ class RoverLink:
                     self.sock = None
                     self.description = self.fault
                     return
+                if "diagnostics" in row:
+                    self.detail_state = dict(row)
+                    self.detail_received = now
                 pending = self.pending_disarm
                 if (pending and row["seq"] >= pending["sequence"] and not row["enabled"]
                         and (not pending["latch"] or row["stopped"])
                         and now-pending["started"] < .35 and now-self.sent[row["seq"]] < .35):
                     self.pending_disarm = None
-                if self.pending_arm and row["seq"] >= self.pending_arm[0] and row["enabled"]:
+                if (self.pending_arm and row["seq"] >= self.pending_arm[0] and row["enabled"]
+                        and row["epoch"] == self.pending_arm[2]
+                        and now-self.pending_arm[1] < .25):
                     self.pending_arm = None
             except (ValueError, TypeError, KeyError, UnicodeError) as exc:
                 self.rejected += 1
@@ -241,6 +248,9 @@ class RoverLink:
                     command_lag=self.seq-ack if ack is not None else None,
                     reply_age_ms=age(self.last_rx),
                     acknowledged_command_age_ms=age(self.sent.get(ack, -math.inf)),
+                    stop_confirmed=bool(self.idle_confirmed() and state.get("stopped")),
+                    mcu_detail_state=self.detail_state,
+                    mcu_detail_age_ms=age(self.detail_received),
                     last_sent_sequence=self.seq, last_sent_operation=self.sent_ops.get(self.seq),
                     acknowledged_sequence=ack, acknowledged_operation=self.sent_ops.get(ack),
                     pending_enable_sequence=self.pending_arm[0] if self.pending_arm else None,
@@ -258,8 +268,8 @@ class RoverLink:
         if not self.connected: return "disconnected"
         if self.state is None: return "handshaking"
         if self.pending_disarm: return "stopping" if self.pending_disarm["latch"] else "disarming"
-        if not self.ready(now): return "degraded"
         if self.pending_arm: return "enabling"
+        if not self.ready(now): return "degraded"
         if self.sent_ops.get(self.state["seq"]) == "HELLO": return "verifying"
         if self.state["stopped"]: return "stopped"
         return "enabled" if self.state["enabled"] else "disabled"
@@ -295,14 +305,18 @@ class RoverLink:
                 self.fault = self.fault or "Rover did not confirm disable within 350 ms; reconnect before retrying"
             if self.tick_gap_ms >= 350 and not idle:
                 self.fault = self.fault or f"PC update paused {self.tick_gap_ms:.0f} ms; reconnect and enable deliberately"
-            if not self.ready(now) and not idle:
-                self.fault = self.fault or "Rover acknowledgment stale; disconnect/reconnect and enable deliberately"
             if self.pending_arm and now-self.pending_arm[1] >= .25:
                 self.fault = self.fault or "Rover did not confirm enable within 250 ms; reconnect before retrying"
+            # ARM has its own fixed confirmation deadline. Aging pre-ARM PING
+            # feedback cannot fail it early, nor can PING extend that deadline.
+            if not self.ready(now) and not idle and not self.pending_arm:
+                self.fault = self.fault or "Rover acknowledgment stale; disconnect/reconnect and enable deliberately"
             if self.fault:
                 self.capture_fault(now)  # Preserve evidence before STOP changes the last command.
                 self.disable(latch=True, now=now)
                 self.retry_disable(now)
+                if self.idle_confirmed() and now-self.last_tx >= .1:
+                    self.send("PING", now=now)  # Observe the latched fault; never reset/ARM.
                 return
             if not result["enabled"]:
                 if self.pending_arm or self.state["enabled"]:
@@ -340,7 +354,8 @@ class RoverLink:
                     f"enable wait {d['enable_wait_ms']} ms / PC loop gap {d['pc_tick_gap_ms']} ms\n"
                     f"MCU reason: {state.get('reason', 'no state')} / enabled: {state.get('enabled', 'unknown')} / "
                     f"rejected packets: {d['rejected_packets']} / last rejection: {d['last_rejection'] or 'none'}\n"
-                    f"MCU diagnostics: {json.dumps(state.get('diagnostics', {}), sort_keys=True)}")
+                    f"MCU diagnostics (separate sample, age {d.get('mcu_detail_age_ms')} ms): "
+                    f"{json.dumps((d.get('mcu_detail_state') or state).get('diagnostics', {}), sort_keys=True)}")
         if self.state is None:
             return self.description
         if self.pending_arm:
@@ -357,7 +372,8 @@ class RoverLink:
                 f"ack #{state['seq']} • age {(now-self.last_rx)*1000:.0f} ms • "
                 f"applied T {state['throttle']} / S {state['steering']} PWM\n"
                 f"Encoders FL/RL/FR/RR: {encoders} • counts, not signed speed\n"
-                f"MCU diagnostics: {json.dumps(state.get('diagnostics', {}), sort_keys=True)}")
+                f"MCU diagnostics (separate sample, age {self.diagnostics(now)['mcu_detail_age_ms']} ms): "
+                f"{json.dumps((self.detail_state or state).get('diagnostics', {}), sort_keys=True)}")
 
     def close(self):
         if self.sock:

@@ -28,6 +28,51 @@ disabled feedback cannot clear it. Retries are at most once per 150 ms and never
 the original 350 ms confirmation deadline. STOP escalation cannot downgrade to DISARM.
 The 250 ms input/ARM/MCU-drive and 350 ms feedback guards are unchanged.
 
+### November 3 timing follow-up
+
+The original server could fault 156 ms into ARM because a pre-ARM PING was already
+375 ms old. ARM now uses its own original 250 ms confirmation deadline; motion stays
+inhibited until same-session feedback at/after ARM confirms enabled at the requested
+epoch. Late confirmation cannot evade that deadline. Driving still requires both
+reply and acknowledged-command ages below 350 ms. No send timestamp is rewritten.
+PC pauses and the independent input/MCU watchdogs retain their original limits.
+
+Browser state, tick records, file-log context and the pose model expose zero drive
+and `enabled:false` while waiting, with `enable_requested:true`. The event/reason
+says "Enable requested; waiting for rover confirmation" until confirmed. The existing
+browser Enabling display uses that phase even when pre-ARM feedback ages.
+
+Once a fault's STOP is confirmed, bounded PING traffic continues without clearing
+the fault, resetting STOP or enabling. Diagnostics include `stop_confirmed`; command
+age therefore measures ongoing communication rather than an intentionally idle STOP.
+Reconnect/reset/enable remain deliberate, with no extra STOP press required.
+
+The matching `recovery-v2` sketch uses compact guarded state replies and includes
+detailed metadata/timings in at most one routine state per second while disabled
+and after the receive queue drains. Detailed frames pause while armed. C2 retains the last
+detail frame separately as `mcu_detail_state` with `mcu_detail_age_ms` since receipt;
+never interpret those older counters as the current compact reply's measurements.
+Identity/PWM/encoder/safety fields remain in every guarded state. Old firmware is
+still accepted; detailed telemetry is optional and cannot refresh command authority.
+
+Regressions reproduce all three 200/250/300 ms pre-ARM PING-age cases against the old
+server and pass on this implementation. Checks also cover lost/late/wrong-epoch ARM
+confirmation, inhibited displays/logs/model, retained detail sample age, fault-only
+PING and a loopback fault/STOP/reconnect/reset/enable sequence. The firmware's native
+stress model uses its actual scheduler/guard, 20 Hz commands, 25 ms receives plus a
+35 ms delay every eleventh receive and 6 ms loop overhead. The old schedule sends
+80 ms full replies; revised armed operation defers detailed replies and assumes
+35 ms compact sends. Conservative maximum ACK ages are 356 ms old / 277 ms revised.
+A sweep of assumed compact-send costs from 30–55 ms stays below 350 ms, with a
+305 ms maximum. A separate idle-to-ARM case includes a 110 ms in-progress detail
+send, 25 ms receive and 55 ms urgent reply. These are synthetic assumptions,
+not measured board performance or proof that physical driving faults are resolved.
+
+Final local checks: 76 backend tests; the shared verification also passed controller/
+UI/JavaScript checks, 72 video-policy tests, 42 desktop, 21 Tk GUI, 16 ROS host,
+10-second delayed-reply soak and native guard checks. Hardware/radio/Windows
+acceptance is pending. No firmware upload or physical acceptance is implied.
+
 Phases/readiness explain handshake, post-HELLO verification, Enable, pending disable,
 STOP, degraded idle and faults. A returned MCU STOP offers Reset even if the browser's
 local latch is clear; reset still needs fresh confirmed disabled feedback. Each new
