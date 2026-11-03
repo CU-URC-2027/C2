@@ -86,4 +86,3 @@ test('Center sticks is unavailable for a physical gamepad and view-only sessions
   const count=h.socket.sent.length;h.byId.get('center-sticks').onclick();assert.equal(h.socket.sent.length,count);
   h.update({input_mode:'virtual',owner:'other'});assert(h.byId.get('center-sticks').disabled);
 });
-
