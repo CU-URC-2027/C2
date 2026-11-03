@@ -1,5 +1,9 @@
 # CU URC 2027 — C2 Command Station
 
+This checkout is the separate **experimental Arduino** branch. Read
+[EXPERIMENTAL_ARDUINO.md](docs/EXPERIMENTAL_ARDUINO.md) for the matching C2 branch,
+0–255 PWM capability, read-only discovery, build evidence and pending hardware gates.
+
 Command-and-control software for the CU URC rover team. C2 provides the operator
 interface for driving the chassis, requesting arm movement, and viewing rover
 telemetry, GPS and camera imagery.

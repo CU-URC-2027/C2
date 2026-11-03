@@ -1,4 +1,5 @@
 #include "../mini_rover_c2/C2Guard.h"
+#include "../mini_rover_c2/C2Discovery.h"
 #include <cassert>
 #include <cstdio>
 #include <string>
@@ -10,14 +11,25 @@ C2Packet command(const char* op, uint32_t seq, uint32_t epoch, int t=0, int s=0)
   C2Packet p; assert(c2parse(text,strlen(text),p)); return p;
 }
 int main() {
+  char nonce[17];
+  assert(c2discoveryQuery("C2DISC1,0123456789abcdef\n",25,nonce));
+  assert(!strcmp(nonce,"0123456789abcdef"));
+  assert(!c2discoveryQuery("C2DISC1,0123456789abcdeg",24,nonce));
+  assert(!c2discoveryQuery("C2DISC1,0123456789abcdef,ARM",28,nonce));
+  assert(!c2urgentReply(false,false,2,false,false,2,"DISARM"));
+  assert(!c2urgentReply(false,true,3,false,true,3,"STOP"));
+  assert(c2urgentReply(true,false,2,false,false,3,"DISARM"));
   for (const char* bad : {"", "MODE:TELEOP", "255,255", "C2V1,0123456789abcdef,0,1,ARM,0,0",
        "C2V1,0123456789abcdef,4294967296,1,ARM,0,0", "C2V1,0123456789abcdef,1,1,ARM,1,0",
-       "C2V1,0123456789abcdef,1,1,DRIVE,50,50", "C2V1,0123456789abcdef,1,1,DRIVE,nan,0",
+       "C2V1,0123456789abcdef,1,1,DRIVE,128,128", "C2V1,0123456789abcdef,1,1,DRIVE,nan,0",
        "C2V1,0123456789abcdef,1,1,DRIVE,9999999999999999999999,0",
        "C2V1,0123456789abcdef,1,1,DRIVE,1.0,0", "C2V1,0123456789abcdef,1,1,ARM,0,0,extra"}) assert(!parse(bad));
   const char embeddedNul[]="C2V1\0,0123456789abcdef,1,1,ARM,0,0";
   assert(!parse(std::string(embeddedNul,sizeof(embeddedNul)-1)));
   assert(parse("C2V1,0123456789abcdef,1,1,DRIVE,-32,32\r\n"));
+  assert(parse("C2V1,0123456789abcdef,1,1,DRIVE,128,0\n"));
+  assert(parse("C2V1,0123456789abcdef,1,1,DRIVE,255,0\n"));
+  assert(!parse("C2V1,0123456789abcdef,1,1,DRIVE,256,0\n"));
   C2Guard g;
   assert(!g.accept(command("ARM",1,1),0));
   assert(g.accept(command("HELLO",1,0),0));

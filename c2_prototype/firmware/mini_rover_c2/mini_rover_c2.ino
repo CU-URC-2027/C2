@@ -30,6 +30,10 @@ unsigned int localPort = 4210;     // UDP Port to listen on
 #include "pin_map.h"
 #include "wifi_credentials.h"
 #include "C2Guard.h"
+#include "C2Discovery.h"
+#ifndef C2_BUILD_ID
+#define C2_BUILD_ID "recovery-v1 " __DATE__ " " __TIME__
+#endif
 #include "c2_config.h"
 // A2 is the encoder input with GPS either on or off.
 static_assert(PIN_ENC_FL != PIN_SONAR_TRIG, "Encoder and sonar must not share a pin");
@@ -50,6 +54,9 @@ bool recoveringNetwork = false;
 unsigned long lastNetworkAttempt = 0;
 uint32_t networkRecoveries = 0;
 uint32_t maxLoopGapMs = 0, lastLoopAt = 0, lastUdpMs = 0, lastOledMs = 0;
+uint32_t lastLoopGapMs=0, lastUdpReadMs=0, lastUdpSendMs=0, maxUdpSendMs=0, lastWifiStatusMs=0;
+uint32_t txFailures=0, discoveryQueries=0, lastDiscoveryReply=0;
+char deviceId[32]="", bootId[32]="", wifiFirmware[32]="";
 uint32_t rxPackets = 0, rejectedPackets = 0;
 const char* lastReject = "none";
 char packetBuffer[255];
@@ -113,6 +120,14 @@ void updateUrcLed();
 void executeMotorDrive(int throttle, int steering);
 void stopMotors();
 void renderOledTelemetry();
+
+void cacheNetworkIdentity() {
+  if (*deviceId) return;
+  byte mac[6]; WiFi.macAddress(mac);
+  snprintf(deviceId,sizeof(deviceId),"urc-r4-%02x%02x%02x%02x%02x%02x",mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]);
+  snprintf(bootId,sizeof(bootId),"boot-%08lx-%08lx",(unsigned long)micros(),(unsigned long)random(0x7fffffff));
+  snprintf(wifiFirmware,sizeof(wifiFirmware),"%s",WiFi.firmwareVersion());
+}
 
 // ================================================================================
 // SETUP
@@ -240,6 +255,7 @@ void setup() {
   }
   networkStartupReady = true;
   startupIp = roverIp;
+  cacheNetworkIdentity();
   wifiConnected = true;
   lastWifiCheck = millis();
   Serial.println(F("\n[WIFI] Address acquired and UDP listener started."));
@@ -266,6 +282,7 @@ void recoverNetwork() {
   Udp.stop();
   if (!Udp.begin(localPort)) return;
   startupIp = ip;
+  cacheNetworkIdentity();
   wifiConnected = networkStartupReady = true;
   recoveringNetwork = false;
   lastWifiCheck = millis();
@@ -276,6 +293,7 @@ void recoverNetwork() {
 
 void loop() {
   uint32_t loopNow = millis();
+  lastLoopGapMs = lastLoopAt ? uint32_t(loopNow-lastLoopAt) : 0;
   if (lastLoopAt && uint32_t(loopNow-lastLoopAt)>maxLoopGapMs)
     maxLoopGapMs = uint32_t(loopNow-lastLoopAt);
   lastLoopAt = loopNow;
@@ -287,7 +305,9 @@ void loop() {
   }
   c2.tick(millis()); applyC2Drive();
   if (millis()-lastWifiCheck >= 100UL) {
+    uint32_t statusStarted=millis();
     wifiConnected = WiFi.status() == WL_CONNECTED;
+    lastWifiStatusMs=millis()-statusStarted;
     lastWifiCheck = millis();
     c2.tick(millis()); applyC2Drive();
   }
@@ -372,19 +392,25 @@ void sendC2State() {
     if(encoderAvailable[i]) snprintf(enc[i],sizeof(enc[i]),"%lu",(unsigned long)counts[i]);
     else strcpy(enc[i],"null"); // Unsupported interrupt is NOT a zero-speed measurement.
   }
-  char response[768];
+  char response[1400];
   int n=snprintf(response,sizeof(response),
-    "{\"v\":1,\"type\":\"state\",\"fw\":\"c2-guard-v1\",\"session\":\"%s\",\"seq\":%lu,\"epoch\":%lu,\"state_id\":%lu,\"enabled\":%s,\"stopped\":%s,\"throttle\":%d,\"steering\":%d,\"encoders\":[%s,%s,%s,%s],\"reason\":\"%s\",\"watchdog_ms\":250,\"diagnostics\":{\"max_loop_gap_ms\":%lu,\"udp_ms\":%lu,\"oled_ms\":%lu,\"rx_packets\":%lu,\"rejected_packets\":%lu,\"last_reject\":\"%s\",\"network_recoveries\":%lu}}",
+    "{\"v\":1,\"type\":\"state\",\"fw\":\"c2-guard-v1\",\"session\":\"%s\",\"seq\":%lu,\"epoch\":%lu,\"state_id\":%lu,\"enabled\":%s,\"stopped\":%s,\"throttle\":%d,\"steering\":%d,\"encoders\":[%s,%s,%s,%s],\"reason\":\"%s\",\"watchdog_ms\":250,\"max_pwm\":255,\"device_id\":\"%s\",\"boot_id\":\"%s\",\"build\":\"%s\",\"wifi_firmware\":\"%s\",\"diagnostics\":{\"max_loop_gap_ms\":%lu,\"udp_ms\":%lu,\"oled_ms\":%lu,\"rx_packets\":%lu,\"rejected_packets\":%lu,\"last_reject\":\"%s\",\"network_recoveries\":%lu,\"loop_gap_ms\":%lu,\"udp_read_ms\":%lu,\"udp_send_ms\":%lu,\"max_udp_send_ms\":%lu,\"wifi_status_ms\":%lu,\"tx_failures\":%lu,\"discovery_queries\":%lu}}",
     c2.session,(unsigned long)c2.seq,(unsigned long)c2.epoch,(unsigned long)++c2StateId,
     c2.enabled?"true":"false",c2.stopped?"true":"false",c2.throttle,c2.steering,
     enc[0],enc[1],enc[2],enc[3],c2.reason,
+    deviceId,bootId,C2_BUILD_ID,wifiFirmware,
     (unsigned long)maxLoopGapMs, (unsigned long)lastUdpMs, (unsigned long)lastOledMs,
     (unsigned long)rxPackets, (unsigned long)rejectedPackets, lastReject,
-    (unsigned long)networkRecoveries);
+    (unsigned long)networkRecoveries,(unsigned long)lastLoopGapMs,(unsigned long)lastUdpReadMs,
+    (unsigned long)lastUdpSendMs,(unsigned long)maxUdpSendMs,(unsigned long)lastWifiStatusMs,
+    (unsigned long)txFailures,(unsigned long)discoveryQueries);
   if (n>0 && (size_t)n<sizeof(response)) {
+    uint32_t sendStarted=millis();
     Udp.beginPacket(c2PeerIp,c2PeerPort);
     Udp.write((const uint8_t*)response,n);
-    Udp.endPacket();
+    if (!Udp.endPacket()) ++txFailures;
+    lastUdpSendMs=millis()-sendStarted;
+    if (lastUdpSendMs>maxUdpSendMs) maxUdpSendMs=lastUdpSendMs;
   }
   lastC2Telemetry=millis();
 }
@@ -395,14 +421,32 @@ void handleUdpPackets() {
   bool replyNeeded=false;
   for (int budget=0; budget<4; ++budget) {
     c2.tick(millis()); applyC2Drive();
+    uint32_t readStarted=millis();
     int size=Udp.parsePacket();
+    lastUdpReadMs=millis()-readStarted;
     if (!size) break;
-    ++rxPackets;
     IPAddress ip=Udp.remoteIP(); uint16_t port=Udp.remotePort();
     int n=Udp.read(packetBuffer,sizeof(packetBuffer)-1);
+    lastUdpReadMs=millis()-readStarted;
     if (n<=0) continue;
     packetBuffer[n]=0;
     if (size!=n) { while(Udp.available()) Udp.read(); continue; }
+    char nonce[17];
+    if (c2discoveryQuery(packetBuffer,(size_t)n,nonce)) {
+      ++discoveryQueries;
+      // Armed hardware suppresses discovery replies; control traffic has priority.
+      if (!c2.enabled && millis()-lastDiscoveryReply>=500UL) {
+        char response[512];
+        bool busy=*c2.session && uint32_t(millis()-c2.lastOwner)<1000UL;
+        int len=snprintf(response,sizeof(response),"{\"v\":1,\"type\":\"c2_discovery\",\"nonce\":\"%s\",\"device_id\":\"%s\",\"boot_id\":\"%s\",\"build\":\"%s\",\"control_protocol\":\"C2V1\",\"control_port\":%u,\"watchdog_ms\":250,\"max_pwm\":255,\"busy\":%s,\"enabled\":false,\"stopped\":%s}",nonce,deviceId,bootId,C2_BUILD_ID,localPort,busy?"true":"false",c2.stopped?"true":"false");
+        if (len>0 && (size_t)len<sizeof(response)) {
+          Udp.beginPacket(ip,port); Udp.write((const uint8_t*)response,len); Udp.endPacket();
+        }
+        lastDiscoveryReply=millis();
+      }
+      continue;
+    }
+    ++rxPackets;
     // A legacy stop remains useful; no legacy packet can enable this firmware.
     if (!strcmp(packetBuffer,"MODE:ARRIVED\n") || !strcmp(packetBuffer,"MODE:ARRIVED")) {
       c2.disable("LEGACY_STOP",true); applyC2Drive(); sendC2State(); return;
@@ -412,12 +456,13 @@ void handleUdpPackets() {
     bool samePeer=haveC2Peer && ip==c2PeerIp && port==c2PeerPort;
     if (strcmp(p.op,"HELLO") && !samePeer) { ++rejectedPackets; lastReject="wrong_peer"; continue; }
     if (haveC2Peer && !strcmp(p.session,c2.session) && !samePeer) { ++rejectedPackets; lastReject="wrong_peer"; continue; }
+    bool wasEnabled=c2.enabled, wasStopped=c2.stopped; uint32_t wasEpoch=c2.epoch;
     if (c2.accept(p,millis())) {
       c2PeerIp=ip; c2PeerPort=port; haveC2Peer=true;
       currentLedMode=c2.enabled?MODE_TELEOP:MODE_ARRIVED;
       applyC2Drive();
       replyNeeded=true;
-      if (strcmp(p.op,"PING") && strcmp(p.op,"DRIVE")) {
+      if (c2urgentReply(wasEnabled,wasStopped,wasEpoch,c2.enabled,c2.stopped,c2.epoch,p.op)) {
         // Confirm transitions immediately; do not defer ARM behind queued drive.
         sendC2State();
         return;

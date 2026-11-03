@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+static const int C2_MAX_PWM = 255; // Physical 8-bit range; browser owns the requested cap.
 
 struct C2Packet {
   char session[17];
@@ -46,8 +47,8 @@ inline bool c2parse(const char* data, size_t size, C2Packet& out) {
   bool known=false; for (auto op:valid) if (!strcmp(op,fields[4])) known=true;
   if (!known) return false;
   if (strcmp(fields[4],"DRIVE") && (out.throttle || out.steering)) return false;
-  // Match the initial 25% wheel cap, including throttle/steering mixing.
-  if (abs(out.throttle+out.steering)>64 || abs(out.throttle-out.steering)>64) return false;
+  // Cap mixed left/right wheel PWM, not just independent throttle/steering axes.
+  if (abs(out.throttle+out.steering)>C2_MAX_PWM || abs(out.throttle-out.steering)>C2_MAX_PWM) return false;
   strcpy(out.session,fields[1]); strcpy(out.op,fields[4]); return true;
 }
 

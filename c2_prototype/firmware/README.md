@@ -1,4 +1,12 @@
-# Current release: NET5
+# Experimental branch: connection recovery and browser PWM
+
+This checkout's chassis sketch is the experimental 0–255 PWM/discovery version.
+Read [its branch contract, build evidence and hardware gates](../../docs/EXPERIMENTAL_ARDUINO.md)
+before use. The matching C2 browser/backend branch is `fix/connection-recovery-discovery`;
+the browser selects the operating cap and starts at 25%. No hardware acceptance or
+upload is implied. The NET5 notes below remain the network/setup baseline.
+
+# Baseline release: NET5
 
 See [recovery, local credentials, and bench acceptance](../../docs/NET5_RECOVERY.md).
 Use ignored `mini_rover_c2/wifi_credentials.local.h` for credentials. The notes below describe earlier setup; the NET5 release notes take precedence for network recovery and configuration.
@@ -53,7 +61,8 @@ C2V1,<session>,<sequence>,<epoch>,<operation>,<throttle>,<steering>\n
 Session: 16 lowercase hex characters, newly generated per connection. Sequence:
 positive uint32, strictly increasing for accepted commands; reconnect before wrap.
 Epoch: MCU state-generation counter from returned state. Throttle/steering: signed
-integer PWM units, both resulting wheel commands bounded to ±64:
+integer PWM units, both resulting wheel commands bounded to ±255 in this experimental
+sketch (main's older firmware uses ±64):
 `left = throttle + steering`, `right = throttle - steering`.
 The original two-number encoding is preserved as values inside this envelope.
 No raw legacy drive packet or MODE:TELEOP can enable this firmware.
