@@ -6,6 +6,11 @@ The shared `packages/video_protocol/` defines URV1 TCP records (12-byte prefix +
 
 Receiver-to-viewer queues are limited to six frames / 4 MiB; oversized frames are rejected. Slow viewers resynchronize at an IDR or disconnect. Restarting the listener closes active TCP sessions and clears queued output; the sender reconnects with a fresh connection epoch. Browser presentation uses an 80 ms PTS buffer bounded to five frames and scales its canvas backing image to the visible monitor while decoding the original received resolution. Received, decoded and rendered FPS are separate. Native codec support is checked; unsupported configurations show errors.
 
-The standalone protocol/receiver may be moved to another C2 host later, but this version deliberately validates loopback addresses only. The priority return path and clock mapping also need explicit two-host configuration. Local monotonic source/receiver latency measurements are valid only in the declared same-host mode. No Wi-Fi, radio, Sigma, DDS or physical-device validation is implied.
+The default launcher validates loopback addresses only. The opt-in [two-VM ROS video
+runner](ROS2_VIDEO_VM.md) now provides explicit private bind/peer allowlists and typed
+metadata return traffic; it was exercised on Ubuntu/Jazzy VMs. Remote source ages
+remain unknown, regardless of a remote sender's claimed clock scope. Local monotonic
+source/receiver ages are valid only in same-host mode. These tests do not validate
+Wi-Fi/radio, Sigma capacity, physical devices or independent-host clock mapping.
 
 The shared verification command (`uv run python scripts/verify.py`) checks the receiver, control runtime, real five-feed synthetic TCP load with slow viewers and input expiry, and browser view lifecycle. See VALIDATION.md for current results. An actual synthetic five-stream browser test also checked shared bandwidth reductions, outage/recovery and both TCP reconnect paths; evidence remains private in the separate lab artifacts. The curated producer is in `prototypes/video_pipeline/`; see VIDEO_SYSTEM.md for testing and hardware adapters. Canonical/historical desktop sources were preserved.

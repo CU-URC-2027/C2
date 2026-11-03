@@ -9,7 +9,7 @@ Five raw source generators → hardware H.264 encoder → bounded OutputHub
   → dedicated binary WebSocket per camera → browser WebCodecs → Camera 01–05
 ```
 
-The C2 receiver relays the encoded bytes. It does not decode video, generate replacement frames or re-encode JPEGs. The architecture lab remains a visual/control surface for actual processes. This repository includes both components, with separate processes/environments and a shared protocol package. The prototype still binds to loopback and does not operate physical devices.
+The C2 receiver relays the encoded bytes. It does not decode video, generate replacement frames or re-encode JPEGs. The architecture lab remains a visual/control surface for actual processes. This repository includes both components, with separate processes/environments and a shared protocol package. Default launch is loopback; the explicit [two-VM ROS mode](../../docs/ROS2_VIDEO_VM.md) adds private peer/bind configuration. Neither mode operates physical devices implicitly.
 
 ## Running it
 
@@ -55,7 +55,11 @@ TCP **URV1** records use a 12-byte network-order prefix (`magic`, metadata lengt
 
 Browser **URB1** records preserve those H.264 bytes with bounded JSON metadata, adding the TCP connection epoch, codec string extracted from the SPS and receiver arrival time. Browser sockets have their own control/status messages and render feedback. The original C2 control WebSocket remains separate. The development launcher disables redundant WebSocket per-message compression for already-compressed video.
 
-Keep native capture/encoder ownership outside ROS callbacks. The existing `EncodedAccessUnit` boundary and standalone metadata/wire adapters remain suitable places for later ROS 2 wrappers; no encoder/transmission DDS node was implemented or tested here.
+Keep native capture/encoder ownership outside ROS callbacks. The integrated ROS
+runner now wraps metadata ownership and preserves this `EncodedAccessUnit` boundary
+for direct TCP media. Two Ubuntu/Jazzy VMs exercised the pipeline with pre-encoded
+fixtures; actual hardware-encoder integration with ROS remains unvalidated. See
+[the current setup and limits](../../docs/ROS2_VIDEO_VM.md).
 
 ## Validation and limits
 
@@ -69,6 +73,11 @@ uv run python verify_transmission.py
 
 It uses the actual C2 receiver's browser render reports, not a generated playback stand-in. It verifies five simultaneous feeds and increasing rendered counters during a ten-second steady check, one combined payload budget, primary-only output at 1 Mb/s and 400 kb/s, zero-bandwidth stop/stale behavior, recovery, and both receiver- and sender-initiated reconnects. It restores the bench link inputs and leaves generators, encoding and transmission **OFF**, including on failure. Evidence: `artifacts/transmission-verification.json`. Browser screenshots and additional view pause/resume checks are saved alongside it. The observed test uses synthetic patterns; it does not establish useful terrain/manipulation quality or operational teleoperation performance.
 
-The implemented sockets and destination validation intentionally accept loopback only. A later two-computer test must explicitly enable/configure a receiver LAN bind and sender destination, update the existing reverse-direction C2 priority/ACK addressing, and address clock mapping. The browser can remain on the C2 computer's localhost. No global firewall/network settings were changed. Real Wi-Fi/radio congestion, loss, long soaks, thermal/power behavior, physical capture, Sigma/QSV and two-host interoperability remain unverified.
+The ordinary launch intentionally accepts loopback only. The explicit ROS runner
+configures private receiver/sender peers and typed reverse metadata; two-VM
+interoperability is documented in the new guide. The browser can remain on the C2
+computer's localhost. No global firewall settings were changed. Real Wi-Fi/radio
+congestion/loss, independent-host timing/performance, long soaks, thermal/power behavior,
+physical capture and Sigma/QSV remain unverified.
 
 Public technical references accessed October 28, 2026: [TCP byte-stream/retransmission semantics](https://www.rfc-editor.org/rfc/rfc9293.html#section-2.2), [Python asyncio stream flow control](https://docs.python.org/3.12/library/asyncio-stream.html), [WebCodecs](https://www.w3.org/TR/webcodecs/), [H.264 WebCodecs registration](https://www.w3.org/TR/webcodecs-avc-codec-registration/), and [WebSocket API](https://websockets.spec.whatwg.org/). AI-assisted local learning prototype requiring substantive human engineering validation and applicable course disclosure/approval before operational adoption or submission.

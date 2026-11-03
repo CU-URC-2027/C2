@@ -1,0 +1,9 @@
+string stream_id
+bool operator_enabled
+bool selected
+string profile_id
+uint32 width
+uint32 height
+uint32 fps
+uint64 target_bitrate_bps
+string reason

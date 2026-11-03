@@ -10,6 +10,7 @@ import math
 import os
 import time
 import uuid
+import ipaddress
 
 from .video_wire import STREAM_IDS,read,pack,nal_info
 
@@ -68,18 +69,27 @@ class Channel:
 
 
 class VideoReceiver:
-    def __init__(self,port=0):
+    def __init__(self,port=0,host='127.0.0.1',allowed_peers=()):
+        address=ipaddress.IPv4Address(host)
+        peers={str(ipaddress.IPv4Address(p)) for p in allowed_peers}
+        if address.is_unspecified or address.is_multicast or not (address.is_loopback or address.is_private):
+            raise ValueError('Use an explicit loopback/private video bind address')
+        if not address.is_loopback and not peers:
+            raise ValueError('A remote video receiver requires explicit allowed peers')
+        if any(not ipaddress.IPv4Address(p).is_private or ipaddress.IPv4Address(p).is_multicast or ipaddress.IPv4Address(p).is_unspecified for p in peers):
+            raise ValueError('Use unicast video peers')
+        self.host=str(address);self.allowed_peers=peers or {'127.0.0.1'}
         self.port=port;self.server=None;self.channels={id:Channel(id) for id in STREAM_IDS}
         self.tasks=set();self.connections=set();self.error=None;self.invalid_records=0;self.restart_count=0;self.lock=asyncio.Lock()
     async def start(self):
-        self.server=await asyncio.start_server(self.accept,'127.0.0.1',self.port,limit=8192)
+        self.server=await asyncio.start_server(self.accept,self.host,self.port,limit=8192)
         self.port=self.server.sockets[0].getsockname()[1]
     async def accept(self,reader,writer):
         task=asyncio.current_task();self.tasks.add(task);self.connections.add(writer);channel=None;token=uuid.uuid4().hex
         try:
             if len(self.connections)>10:raise ValueError('Too many video connections')
             peer=writer.get_extra_info('peername')
-            if not peer or peer[0]!='127.0.0.1':raise ValueError('Only loopback senders are supported')
+            if not peer or peer[0] not in self.allowed_peers:raise ValueError('Video sender is not an allowed peer')
             while True:
                 meta,payload=await asyncio.wait_for(read(reader),2)
                 info=nal_info(payload)
@@ -101,7 +111,8 @@ class VideoReceiver:
                 channel.frames+=1;channel.bytes+=len(payload);channel.width=meta['width'];channel.height=meta['height']
                 channel.events.append((now,len(payload)))
                 source_ns=meta.get('source_received_ns')
-                channel.last_source_age_ms=(time.monotonic_ns()-int(source_ns))/1e6 if meta.get('clock_scope')=='loopback_same_host' and isinstance(source_ns,str) else None
+                local_clock=peer[0]=='127.0.0.1' and meta.get('clock_scope')=='loopback_same_host'
+                channel.last_source_age_ms=(time.monotonic_ns()-int(source_ns))/1e6 if local_clock and isinstance(source_ns,str) else None
                 delivered=dict(meta,connection_epoch=token,codec_string=channel.codec,received_wall_ms=time.time()*1000)
                 for viewer in tuple(channel.viewers):viewer.push(delivered,payload)
                 if info['idr']:channel.request_keyframe=False
@@ -139,7 +150,7 @@ class VideoReceiver:
         async with self.lock:
             await self.stop();await self.start();self.restart_count+=1
     def state(self):
-        return {'process_pid':os.getpid(),'listening':self.server is not None,'host':'127.0.0.1','port':self.port,
+        return {'process_pid':os.getpid(),'listening':self.server is not None,'host':self.host,'port':self.port,
             'protocol':'URV1 / H.264 Annex B','restart_count':self.restart_count,'invalid_records':self.invalid_records,
             'cameras':[c.state() for c in self.channels.values()],'error':self.error,
-            'scope':'Local TCP receive and binary-WebSocket relay; no server video decoding or encoding'}
+            'scope':'TCP receive and binary-WebSocket relay; no server video decoding or encoding'}

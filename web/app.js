@@ -1,6 +1,7 @@
 import {readController} from './controller.mjs';
 import {initPriorities,renderPriorities} from './priorities.mjs';
 import {initFileLogging} from './file-logging.mjs';
+import {initVideoNetwork} from './video-network.mjs';
 const $ = id => document.getElementById(id);
 const fmt = (v, digits=2, suffix='') => Number.isFinite(v) ? `${v.toFixed(digits)}${suffix}` : '—';
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -144,6 +145,7 @@ $('connect-ros').onclick=()=>{zero();act('connect',{mode:'ros2',namespace:$('ros
 $('mock-apply').onclick=()=>act('mock_options',{reply_delay_ms:Number($('mock-delay').value),drop_commands:$('mock-drop').value==='true'});
 initPriorities(send,notice);
 const renderFileLogging=initFileLogging(send,notice);
+const renderVideoNetwork=initVideoNetwork(send,notice);
 $('joint').onchange=()=>{axes.jog=0;act('joint',{joint:$('joint').value});};
 $('connect-mock').onclick=()=>{zero();act('connect',{mode:'mock'});};
 $('connect-udp').onclick=()=>{zero();act('connect',{mode:'udp',host:$('rover-host').value.trim(),port:Number($('rover-port').value)});};
@@ -155,6 +157,7 @@ $('comparison-file').onchange=async()=>{const file=$('comparison-file').files[0]
 function render(s) {
   const mine=s.owner===client, c=s.control, r=s.rover, g=s.gps;
   renderFileLogging(s.file_logging,mine);
+  renderVideoNetwork(s.video_priorities,mine);
   const modeLabel=({'model':'MODEL ONLY','mock':'NET5 LOCAL MOCK','udp':'NET5 CHASSIS UDP','oc-mock':'OC LOOPBACK','ros2':'ONBOARD ROS 2'})[s.mode]||s.mode;
   text('mode-tag',modeLabel);renderPriorities(s.video_priorities,mine);
   const seconds=Math.floor(s.uptime_s);text('uptime',`T+${String(Math.floor(seconds/60)).padStart(2,'0')}:${String(seconds%60).padStart(2,'0')}`);

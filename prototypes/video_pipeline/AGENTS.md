@@ -7,7 +7,8 @@ Its original private workspace and evidence are not included or modified here.
 
 ## Boundaries
 
-- This is a separately launched, loopback-only prototype. C2 does not depend on
+- This is a separately launched prototype with loopback defaults. The explicit
+  two-VM ROS mode is documented in `../../docs/ROS2_VIDEO_VM.md`. C2 does not depend on
   it being installed or running. Work here belongs in this directory; receiver
   integration belongs in `../../c2_web/`, browser playback in `../../web/`.
 - StatusManager and EncodingDecision stay standard-library, metadata-only cores.
@@ -31,6 +32,9 @@ Its original private workspace and evidence are not included or modified here.
 - Require explicit hardware encoding. No silent software fallback, installed-driver
   changes, network exposure or physical camera/motor access as a routine test fix.
   Mac VideoToolbox was tested; Intel QSV is an unvalidated adapter branch.
+- Explicit `--fixtures` runs pre-encoded replay for transport/policy testing without
+  a GPU. It allocates no raw frames and uses bounded threads/AU queues. Preserve
+  honest test-mode labels and requested/fixture/measured bitrate distinctions.
 - Preserve session/sequence identity, source receipt clock, normalized output PTS,
   IDR/SPS/PPS recovery, bounded raw/AU/viewer queues, deadlines and measured metrics.
   Requested settings, accepted properties and actual output are different evidence.
@@ -40,8 +44,10 @@ Its original private workspace and evidence are not included or modified here.
 - Run `uv run --frozen pytest` and syntax checks for changed web files here, or the
   root `uv run --frozen python scripts/verify.py` for both apps. Unit tests need no
   FFmpeg/GPU. Native probes and end-to-end video tests are separate opt-in gates.
-- ROS scaffolding is unbuilt/untested and belongs here until deliberately integrated.
-  Do not claim mock/host/Mac results validate DDS, Sigma throughput or field quality.
+- ROS video metadata and direct TCP media were exercised on two Ubuntu/Jazzy ARM64
+  VMs; see `../../docs/ROS2_VIDEO_VM.md` for exact scope and setup. The historical
+  standalone `ros2_status_adapter.py` remains a draft. Do not infer Sigma throughput,
+  physical camera timing, radio or field quality from those VM tests.
 
 For a port, report the OS/GPU/driver/GStreamer versions, factory and property mapping,
 commands run, actual output, shutdown behavior and remaining gaps. Do not remove

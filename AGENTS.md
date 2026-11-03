@@ -11,6 +11,7 @@ unless the task explicitly changes those components. Do not silently port NET5 i
 | --- | --- |
 | Browser station, receiver, controls | `c2_web/`, `web/`, `tests/`; docs/ARCHITECTURE.md and PORT_PARITY.md |
 | Video testing or hardware encoder port | `prototypes/video_pipeline/`; docs/VIDEO_SYSTEM.md, its AGENTS.md and HARDWARE_ADAPTERS.md |
+| Opt-in ROS video across machines | `docs/ROS2_VIDEO_VM.md`; `scripts/ros_video.py`, `c2_web/video_ros.py`, prototype `ros_status_runtime.py` and `replay.py` |
 | Shared video framing | `packages/video_protocol/`; its README.md and AGENTS.md |
 | Verification/CI | `scripts/verify.py`, `.github/workflows/verify.yml` |
 | Existing chassis ROS code | `ros2_ws/`; its README and current interface/validation docs |
@@ -35,6 +36,10 @@ credentials, local environments, absolute personal paths or compiled binaries.
   physical devices, firmware uploads and powered tests require deliberate task scope.
 - Test with local mocks/synthetic media. Keep arm/RC/model/encoder-validity and measured
   vs requested states explicit. Host/Mac tests do not establish DDS or field readiness.
+- The explicit two-VM video mode uses domain 198 and one ROS participant per app,
+  typed metadata plus direct H.264 TCP. Keep chassis/firmware/vendor pins independent.
+  Pre-encoded replay is a deliberate test mode, never an automatic hardware fallback.
+  Its VM/DDS evidence does not measure Sigma throughput or radio performance.
 - File diagnostics default OFF and use an owner-selected existing backend folder.
   Keep file opening/serialization/writes off the control loop and settings requests
   nonblocking for WebSocket INPUT. Preserve bounded queues, visible loss/errors,

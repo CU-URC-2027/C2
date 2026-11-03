@@ -35,13 +35,13 @@ def clean(value):
 
 
 class Runtime:
-    def __init__(self, clock=time.monotonic):
+    def __init__(self, clock=time.monotonic, video_priorities=None):
         self.clock = clock
         self.control = Control()
         self.link = RoverLink()
         self.mock = None
         self.onboard = None
-        self.video = VideoPriorities(clock)
+        self.video = video_priorities if video_priorities is not None else VideoPriorities(clock)
         self.encoder_rates = EncoderRates()
         self.last_encoder_state = -1
         self.last_fault_snapshot = None
@@ -297,6 +297,10 @@ class Runtime:
             self.event(f"Video priorities updated to revision {self.video.revision}")
         elif name == "video_destination":
             self.video.destination(data.get("host"), data.get("port"), data.get("enabled"))
+        elif name == "video_link_budget":
+            if not hasattr(self.video, "configure_budget"):
+                raise ValueError("Start the explicit ROS video runner to publish a link budget")
+            self.video.configure_budget(data.get("available_bps"), data.get("video_share_percent"))
         elif name == "disconnect":
             self.disconnect()
         elif name == "mock_silent":

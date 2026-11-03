@@ -11,7 +11,7 @@ from encoding_decision import PROFILES, SigmaLimits
 
 
 class EncoderRuntime:
-    def __init__(self, bank, decision, worker_factory=EncoderWorker, native_prepare=prepare):
+    def __init__(self, bank, decision, worker_factory=EncoderWorker, native_prepare=prepare, execution_mode='hardware_encoder_local_output'):
         self.bank,self.decision=bank,decision
         self.worker_factory,self.native_prepare=worker_factory,native_prepare
         self.enabled=False;self.native=None;self.task=None
@@ -20,6 +20,7 @@ class EncoderRuntime:
         self.preview_leases={};self.lock=asyncio.Lock();self.error=None
         self.session_started=self.session_stopped=0
         self.sources_blocked=False
+        self.execution_mode=execution_mode
 
     def event(self, text):self.events.appendleft({'time':time.strftime('%H:%M:%S'),'message':text})
 
@@ -32,7 +33,7 @@ class EncoderRuntime:
                 try:self.native=await asyncio.to_thread(self.native_prepare)
                 except Exception as exc:
                     self.error=str(exc);raise ValueError(str(exc)) from exc
-                self.failed.clear();self.error=None;self.enabled=True;self.event('Hardware encoding enabled explicitly')
+                self.failed.clear();self.error=None;self.enabled=True;self.event(f'{self.execution_mode} enabled explicitly')
             elif not enabled:
                 self.enabled=False
                 await self.stop_all('Encoding disabled')
@@ -163,7 +164,7 @@ class EncoderRuntime:
             'gstreamer_version':self.native['probe']['gstreamer_version'] if self.native else None,
             'active_sessions':len(self.jobs),'session_started':self.session_started,'session_stopped':self.session_stopped,
             'previews_enabled':self.previews_enabled,'error':self.error,'cameras':rows,
-            'output':self.hub.state(),'events':list(self.events),'mode':'hardware_encoder_local_output',
+            'output':self.hub.state(),'events':list(self.events),'mode':self.execution_mode,
             'transmission_connected':False}
 
     def jpeg(self, id):

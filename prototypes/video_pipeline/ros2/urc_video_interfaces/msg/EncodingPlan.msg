@@ -1,0 +1,12 @@
+uint32 schema_version
+string source_session
+uint64 sequence
+uint64 plan_revision
+string state
+uint64 video_budget_bps
+uint64 planned_bitrate_bps
+bool priorities_stale
+bool bandwidth_stale
+bool hardware_validated
+string execution_mode
+CameraEncodingPlan[] cameras
