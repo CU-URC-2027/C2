@@ -15,14 +15,54 @@ Neither branch has physical hardware acceptance. No upload was performed.
   and disarms on an increase. State feedback advertises `max_pwm:255`, letting C2
   distinguish this sketch from older 64-count firmware. Duty cycle is not speed.
 - Actual ARM/DISARM/STOP/reset transitions still apply outputs immediately and receive
-  urgent confirmation. Redundant DISARM/STOP packets can be processed in the existing
-  bounded four-packet batch with one reply, instead of returning/sending per duplicate.
+  urgent compact confirmation. Redundant DISARM/STOP packets share bounded receive
+  batches without an urgent reply per duplicate. Routine replies follow a separate
+  100 ms schedule; receive work admits at most eight packets or 120 ms per batch.
 - Telemetry adds device ID (cached MAC), boot diagnostic ID, build identifier, Wi-Fi
   co-processor firmware and last completed UDP read/send/Wi-Fi status/loop timing,
   max send/loop timing, TX failures and discovery-query count. The existing `udp_ms`
   covers the handler; timing fields can describe the previous completed operation.
   `max_loop_gap_ms` is a lifetime maximum, not every loop's duration. Identity is
   diagnostic/selection metadata, not cryptographic authentication.
+
+### November 3 timing follow-up: recovery-v2
+
+Routine/urgent replies now use compact C2V1-compatible guarded state JSON (381 bytes
+in the native worst-width fixture). Device/boot identity, PWM capability, encoders
+and every safety/ACK field remain in each frame. Detailed build/Wi-Fi metadata and
+counters replace one routine reply at most once per second while disabled and only
+after the RX queue drains. Detailed frames pause throughout armed operation; they
+never add a second datagram. Every urgent transition receives a compact reply.
+The matching C2 server keeps separately aged detail frames in diagnostics.
+
+`C2Telemetry.h` supplies the portable scheduler and bounded formatter used by the
+actual sketch. Receive batches stop at the packet/time admission limit, with
+watchdog/GPIO checks around individual synchronous modem calls. An already-started
+call can exceed the admission budget; this is not a hard real-time bound. Oversize
+datagrams use one flush instead of an unbounded byte-by-byte drain. No loop sends a
+second state immediately after an urgent state, even when its modem call ran long.
+
+Timings now include the full receive batch separately from the handler, batch count,
+budget-hit count, last payload bytes and beginPacket/write/endPacket durations.
+Existing send/loop maxima remain lifetime maxima. Timing values describe previously
+completed work; detail-frame receipt age is also distinct from capture/measurement
+age. All three send stages contribute to TX failure reporting. No timeout increased.
+
+Native stress checks use the real scheduler and guard with 20 Hz input, 25 ms receives
+plus 35 ms every eleventh receive, 6 ms loop overhead, 80 ms detailed sends and assumed
+35 ms compact sends. The revised scheduler defers detailed frames while armed.
+Conservative ACK-age maxima are 356 ms old / 277 ms revised. Sweeping compact-send
+costs from 30–55 ms gives a 305 ms maximum. An idle-to-ARM case also includes an
+in-progress 110 ms full send, 25 ms receive and 55 ms urgent reply. These costs are
+synthetic; the compact-send improvement must be measured on hardware.
+The test also checks count/time budgets, timer rollover, output-buffer truncation and
+maximum-width compact framing. The independent 250 ms drive timeout still applies.
+
+Arduino Renesas Uno core 1.6.0 compiled recovery-v2 at **100,492 bytes flash / 12,544
+bytes static RAM**, using the library versions below. This is compilation evidence,
+not a firmware upload or a physical timing/motor test. Full shared host verification
+passed (22 checks including compilation); the final revised scheduler/native stress
+and full sketch compile also pass. Physical acceptance remains pending.
 
 ## Read-only discovery contract
 
