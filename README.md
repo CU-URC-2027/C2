@@ -23,6 +23,13 @@ A physical controller uses the browser Gamepad API; `pygame` is only needed by t
 legacy desktop controller adapter. Node.js 18+ is needed for verification, not to serve
 or build the browser UI.
 
+**Center sticks** resets virtual sliders and releases drive/jog holds; a physical
+gamepad must be centered by hand. To diagnose connection problems, open **Connections
+→ Diagnostic file logging**, enter an existing folder on the Python backend computer
+and enable logging before connecting. The UI shows the actual JSONL filename and
+any write errors. Stop logging to flush/close the file; it starts off after every
+backend restart. See [logging and troubleshooting](docs/DEVELOPMENT.md#diagnostic-file-logging).
+
 Drive includes a selectable large Camera 01–05 view and four smaller feeds beside the
 controls. The Cameras page shares those same decoder sessions, plus feed priorities
 and the original snapshot/demo sources. Start live playback explicitly; hiding the tab

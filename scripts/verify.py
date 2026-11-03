@@ -40,6 +40,7 @@ def main():
 
     run("Browser API, runtime, priorities and video receiver", [sys.executable, "-m", "pytest", "-q"])
     run("Browser controller mapping", [node, "tests/controller_test.mjs"])
+    run("Center sticks and diagnostic logging UI", [node, "--test", "tests/center_sticks_test.mjs", "tests/file_logging_test.mjs"])
     run("Video view lifecycle", [node, "--test", "tests/video_view_test.mjs"])
     for source in sorted((ROOT/"web").iterdir()):
         if source.suffix in (".js", ".mjs"):

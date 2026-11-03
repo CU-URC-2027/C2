@@ -45,6 +45,58 @@ Python 3.12 or 3.13 is required. `uv` manages the virtual environment; dependenc
 
 Browser focus loss, tab hiding, navigation away, or operator WebSocket disconnect clears hold and disarms. A gamepad must be connected and the page focused. Only one tab owns controls; other tabs can view, disarm, or STOP. Release controls before acquiring them in another tab.
 
+## Diagnostic file logging
+
+File logging is opt-in and independent of the existing in-memory exports. In
+**Connections → Diagnostic file logging**, enter an existing absolute folder path
+on the computer running the Python service. Examples: `~/Downloads` or
+`/home/operator/c2-logs` on macOS/Linux, `C:\Users\operator\Documents\C2 Logs` on
+Windows. `~` expands to the backend user's home directory. This is a text path
+setting, not the browser's download-folder picker; a browser cannot grant Python
+access to a different computer's filesystem. The folder must already exist and be
+writable. Only the owning browser session can start/stop logging.
+
+Enable logging **before connecting**. Each session exclusively creates a new
+`c2-diagnostics-<UTC timestamp>-<unique id>.jsonl`; existing files are never overwritten.
+The UI displays its full path, written/queued/dropped record counts and any error.
+Stop logging drains the queue, flushes and closes the file. Normal backend shutdown
+does the same. Logging starts OFF on every backend restart, even if it was on before;
+it continues if the browser alone disconnects so that disconnect/expiry evidence is
+retained. The UI folder field is not saved as a permanent backend preference.
+
+Record types and useful evidence:
+
+- `session_start`: Git revision/dirty status, OS/Python/PID and initial control/link
+  state. A missing Git executable/repository leaves revision metadata unavailable.
+- `action_request`, `action_result`, `action_rejected`: connection mode, target
+  IPv4/port, source changes, Enable/STOP/reset and settings requests/refusals. Browser
+  release reasons distinguish navigation, blur, hidden tabs and mapping changes.
+- `tick`: 20 Hz guarded input and increasing input sequence, sample age, requested
+  wheel commands, actual returned MCU state/PWM and ACK/command ages, rejection
+  diagnostics, frozen first fault, and optional onboard feedback. Returned PWM is
+  not proof of physical movement. Input traffic itself is not duplicated as a second
+  successful-action stream; rejected/malformed messages are recorded explicitly.
+- `event`, `browser_session`, `websocket_error`: reason transitions, session
+  connect/disconnect and malformed control-message errors.
+- `log_gap`, `session_end`: dropped-record totals and the close reason.
+
+File opening, JSON serialization, writes and flushes run outside the control loop.
+Start/stop is asynchronous so the same WebSocket can keep receiving fresh input
+while a disk operation is pending. A bounded 2048-record queue drops diagnostic
+records if a disk falls behind, exposing the count and gap markers. A disk error
+turns logging off with a visible error; it cannot refresh input, change authority or
+disable a watchdog. Flushes occur at least once a second while the disk responds,
+after diagnostic events and on stop; abrupt termination/power loss may lose buffered
+tail records. Logging is append-only within a session, with no size rotation/deletion.
+
+Logs include local connection addresses, session IDs, inputs and returned telemetry.
+Imported comparison text, snapshot URLs and video payloads are excluded. Generated
+diagnostic filenames are Git-ignored; keep logs local unless deliberately shared.
+For a connection failure, reproduce once with logging on, stop logging, and inspect
+the rejected action, `rover_diagnostics`, ACK ages and `rover_first_fault` before
+changing firmware/timeouts or reconnecting. The older Telemetry exports remain useful
+if file logging was not enabled before the failure.
+
 ## Edit and test
 
 The service has no auto-reloader by default. Stop/restart after Python changes; reload the page after browser changes. Every restart begins disarmed. No motor hardware is needed for these tests:

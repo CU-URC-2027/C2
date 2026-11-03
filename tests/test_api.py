@@ -60,3 +60,31 @@ def test_cross_origin_websocket_rejected():
         with pytest.raises(WebSocketDisconnect):
             with c.websocket_connect("/ws", headers={"Origin": "https://other.example"}):
                 pass
+
+
+def test_file_logging_settings_survive_browser_disconnect_but_start_off_on_restart(tmp_path):
+    from pathlib import Path
+    app = create_app()
+    with TestClient(app) as c:
+        with c.websocket_connect("/ws") as ws:
+            ws.receive_json()
+            assert ack(ws, "file_logging", {"enabled": True, "directory": str(tmp_path)})["ok"]
+            for _ in range(30):
+                state = ws.receive_json()
+                if state["type"] == "state" and state["state"]["file_logging"]["enabled"]:
+                    break
+            assert app.state.station.file_log.enabled
+            path = Path(app.state.station.file_log.path)
+            ws.send_text("{not json")
+            while True:
+                message = ws.receive_json()
+                if message["type"] == "ack":
+                    assert not message["ok"]
+                    break
+        assert app.state.station.owner is None and app.state.station.file_log.enabled
+        assert not app.state.station.control.armed
+    saved = [json.loads(row) for row in path.read_text().splitlines()]
+    assert any(row["type"] == "websocket_error" for row in saved)
+    assert saved[-1]["type"] == "session_end" and saved[-1]["reason"] == "Backend shutdown"
+    with TestClient(create_app()) as c:
+        assert not c.get("/api/state").json()["file_logging"]["enabled"]

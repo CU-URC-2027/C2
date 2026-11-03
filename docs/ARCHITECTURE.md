@@ -22,6 +22,7 @@ flowchart LR
 | `web/index.html`, `web/style.css`, `web/app.js` | Layout, browser inputs, plots, image panes |
 | `c2_web/api.py` | Local HTTP resources, WebSocket sessions/actions/state |
 | `c2_web/runtime.py` | State owner and independent control tick |
+| `c2_web/file_logging.py`, `web/file-logging.mjs` | Opt-in file logging settings, bounded nonblocking handoff and disk worker |
 | `web/live-video.js`, `live-video.css` | One five-camera panel shared by Drive/Cameras; view selection and native decode |
 | `c2_web/video_receiver.py`, `video_wire.py` | Bounded passive TCP receive, framing, ACK and encoded-video relay |
 | `c2_web/inputs.py` | Headless serial reader and bounded HTTP image fetch |
@@ -34,6 +35,20 @@ The browser sends input at 20 Hz only on a focused, visible Drive & arm page; st
 Drive and Cameras move the same video panel between page slots, retaining at most one video socket/decoder per camera in this tab. Large-view selection only changes layout; it never writes priorities or operator samples. Other routes and hidden tabs release video resources. The command model remains available in an expandable Drive panel.
 
 One browser owns controls. Other connected tabs can view, disarm or STOP. Claim, input-source change, focus loss, page change, disconnect and restart disarm. The first session acquires control; subsequent viewers must claim after release. Ownership is local UI coordination, not authentication.
+
+Center sticks resets virtual axes/readouts, keyboard/pointer drive hold and jog to
+zero. It sends a new operator sample and does not enable or reset STOP. A physical
+gamepad must be returned to neutral by hand. Cleared keyboard holds cannot resume
+through an old auto-repeat keydown; release and press again.
+
+The owner can request `file_logging` with `{enabled, directory}`. Python asynchronously
+opens/closes the file so control messages keep flowing on that same WebSocket. A
+bounded queue hands immutable diagnostic snapshots to one writer thread; JSON/disk
+work never runs in the 20 Hz control tick. `state.file_logging` reports enabled,
+configuring/stopping, actual path, counters and failures. File logging starts off,
+continues through browser disconnect, and drains on normal backend shutdown. See
+DEVELOPMENT.md for the schema, path semantics and flush/durability limits. It never
+creates input samples, changes authority or replaces the existing exports.
 
 The original UDP protocol retains its session/epoch/sequence checks, enable acknowledgment, 350 ms feedback deadline and independent receiver watchdog. Browser/server checks do not replace MCU limits or physical emergency stop. The retained direct C2-to-MCU adapter remains the repository's bench prototype; the separate upstream ROS chassis interface is exposed through an optional ROS adapter and a host-policy OC loopback. DDS is not available or validated on this Mac.
 

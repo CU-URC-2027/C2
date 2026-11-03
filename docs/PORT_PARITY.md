@@ -6,6 +6,7 @@ October 29, 2026. Baseline: `c2-net5-recovery` commit `971aec79b103d9106dc47571f
 | --- | --- | --- |
 | Neutral enable, hold-to-drive, wheel cap, STOP/reset | Preserved Control policy; persistent safety controls | Browser/runtime and mock tests; no motors |
 | Sliders and raw input vector while disarmed | Throttle/steering sliders, virtual stick/vector and keyboard | Browser controls; vector is input, not measured velocity |
+| Center sticks | Explicit virtual Center sticks button with immediate zero sample/readouts and released holds | Browser and event-binding checks; physical sticks must be centered by hand |
 | Left/right Xbox sticks, LB hold, raw mapping | Standard Gamepad API left/right selectors plus raw axes/button indices and rescan | Mapping checks pass; physical controller/browser mapping needs validation |
 | Direct guarded UDP | Current NET5 RoverLink | Handshake, faults and no automatic restart tested |
 | Browser Enable readiness | Fresh non-HELLO acknowledgment required before offering ARM | Avoids reproduced 150 ms delayed-initial-handshake timing failure; upstream timeouts unchanged, confirmation never auto-enables |
@@ -20,6 +21,7 @@ October 29, 2026. Baseline: `c2-net5-recovery` commit `971aec79b103d9106dc47571f
 | Four generated/snapshot camera panes | Preserved HTTP JPEG/PNG and demo panes | Original panes preserved; later local receiver/player documented separately |
 | Command pose/path and future OC request preview | Model path plus forward/turn preview with explicit not-sent marker | Toy geometry retained; not odometry |
 | JSONL capture/export and readable diagnostics | UTC/monotonic input, feedback, faults and model records; scroll-preserving updates | Bounded buffers, intentional download |
+| Continuous diagnostic file capture | Owner-operated on/off settings and an existing backend folder chosen by the user | JSONL writer tests cover path errors, queue loss, disk failure, independent input processing, graceful close and restart default-off |
 | ROS dashboard claim/enable/disarm/STOP/reset | Browser OC controls and upstream Supervisor/ChassisBridge / OperatorNode adapters | Same host policy in OC loopback; real DDS unavailable on this Mac |
 | ROS dashboard feedback loss / OC restart behavior | Local fault latch, no replay of cached motion, explicit claim/reset/enable | Core/host and adapter tests; DDS execution pending |
 | ROS dashboard encoder validity and Save run | Full OC state table and 6000-row receipt-time capture export | Same upstream field contract, no calibrated wheel velocity |

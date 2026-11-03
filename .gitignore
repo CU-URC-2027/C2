@@ -12,6 +12,7 @@ data/
 artifacts/
 .env
 *.log
+c2-diagnostics-*.jsonl
 *.egg-info/
 /packages/video_protocol/build/
 /packages/video_protocol/dist/
