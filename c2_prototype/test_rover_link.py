@@ -188,7 +188,7 @@ class RoverTests(unittest.TestCase):
         self.assertGreater(self.link.rejected, 0)
 
     def test_envelope_limits(self):
-        for args in ((65, 0), (50, 50), (float("nan"), 0), (True, 0)):
+        for args in ((256, 0), (200, 200), (float("nan"), 0), (True, 0)):
             with self.assertRaises(ValueError):
                 packet("a"*16, 1, 1, "DRIVE", *args)
         self.assertIn(b"DRIVE,32,32", packet("a"*16, 1, 1, "DRIVE", 32, 32))

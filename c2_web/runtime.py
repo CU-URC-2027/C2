@@ -15,6 +15,7 @@ from .inputs import GPSInput, fetch_snapshot
 from .priorities import VideoPriorities
 from .onboard import OnboardOperator, ros_available, CLAIM, ENABLE, RESET
 from .file_logging import DiagnosticLog
+from .rover_discovery import RoverDiscovery, RoverProfiles
 from urc_c2_chassis.policy import EncoderRates
 
 
@@ -45,6 +46,7 @@ class Runtime:
         self.encoder_rates = EncoderRates()
         self.last_encoder_state = -1
         self.last_fault_snapshot = None
+        self.fault_history = deque(maxlen=8)
         self.owner = None
         self.owner_seen = -math.inf
         self.clients = set()
@@ -53,6 +55,11 @@ class Runtime:
         self.input_seq = -1
         self.last_input = -math.inf
         self.input_paused = False
+        self.input_available = True
+        self.last_valid_input_seq = -1
+        self.browser_input = {}
+        self.discovery, self.profiles = RoverDiscovery(), RoverProfiles()
+        self.profile_task = None
         self.joint = "base"
         self.running = False
         self.task = None
@@ -132,18 +139,36 @@ class Runtime:
         if type(data.get("deadman", False)) is not bool:
             raise ValueError("Deadman must be true or false")
         t, s, jog = (number(data.get(k, 0)) for k in ("throttle", "steering", "jog"))
+        context = data.get("context", {})
+        if isinstance(context, dict):
+            context = {k: v[:160] if isinstance(v, str) else v for k, v in context.items()
+                       if k in ("controller_id", "mapping", "stick", "error", "focused", "visible",
+                                "throttle_axis", "steering_axis", "hold_button") and type(v) in (str, bool, int)}
+            if context != self.browser_input:
+                self.file_log.submit("browser_input_context", context)
+                self.browser_input = context
         if self.input_paused:
             return
         if self.input_mode == "gamepad" and data.get("gamepad_connected") is not True:
-            self.disarm("Gamepad unavailable")
+            if self.input_available or self.control.armed:
+                self.disarm("Gamepad unavailable")
+                self.event("Gamepad unavailable; controls disarmed. Check mapping and press a controller button.")
+            self.input_available = False
+            self.input_seq = seq  # Consume ordering, never renew the valid-input clock.
+            self.input = dict(throttle=0, steering=0, deadman=False, jog=0)
+            self.last_input = -math.inf
             self.control.samples[self.control.source].received = -math.inf
             return
+        if not self.input_available:
+            self.event("Input recovered; neutralize and enable deliberately")
+        self.input_available = True
         now = self.clock()
         # Only a NEW browser input updates this timestamp. The 20 Hz service tick never does.
         self.control.receive(self.control.source, t, s, data.get("deadman", False), now)
         self.control.receive_jog(self.joint, jog, now)
         self.input = {"throttle": t, "steering": s, "deadman": data.get("deadman", False), "jog": jog}
         self.last_input, self.input_seq = now, seq
+        self.last_valid_input_seq = seq
         if self.onboard:
             self.onboard.input(t, s, data.get("deadman", False), self.control.speed_limit)
 
@@ -175,7 +200,8 @@ class Runtime:
     def log_context(self):
         return clean({"mode": self.mode, "owner": self.owner, "input_mode": self.input_mode,
                       "input_seq": self.input_seq, "input_age_s": self.clock()-self.last_input,
-                      "input_paused": self.input_paused, "control": self.control.output(self.clock()),
+                      "input_paused": self.input_paused, "control": self.direct_control_output(self.clock()),
+                      "browser_input": self.browser_input, "last_valid_input_seq": self.last_valid_input_seq,
                       "rover_diagnostics": self.link.diagnostics(self.clock()),
                       "rover_fault": self.link.fault, "first_fault": self.last_fault_snapshot,
                       "onboard": self.onboard.state() if self.onboard else None})
@@ -220,6 +246,8 @@ class Runtime:
             self.disarm("Browser released controls")
             self.owner = None
         elif name == "enable":
+            if self.link.fault:
+                raise ValueError(self.link.fault)
             if self.input_mode == "rc-demo" and (self.link.connected or self.onboard):
                 raise ValueError("RC is a preview input; choose virtual stick or gamepad for chassis control")
             if self.link.connected and not self.direct_enable_ready():
@@ -239,7 +267,9 @@ class Runtime:
                 except (ValueError, OSError):
                     self.disarm("Rover did not accept enable")
                     raise
-            self.event("Enable requested; hold drive to move")
+            if self.link.connected:
+                self.control.reason = "Enable requested; waiting for rover confirmation"
+            self.event(self.control.reason)
         elif name == "reset_stop":
             if self.onboard:
                 self.onboard.command(RESET)
@@ -253,14 +283,18 @@ class Runtime:
                 raise ValueError("Unknown input mode")
             self.disarm("Input source changed")
             self.input_mode = mode
+            self.input_available = mode != "gamepad"
             self.control.select("RC" if mode == "rc-demo" else "Xbox")
             self.control.samples[self.control.source].received = -math.inf
             self.last_input = -math.inf
         elif name == "speed_limit":
-            self.control.speed_limit = number(data.get("value"), 0.05, 0.25)
+            limit = number(data.get("value"), 0, self.pwm_limit_max())
+            if limit>self.control.speed_limit and self.control.armed:
+                self.disarm("PWM cap increased; enable deliberately at neutral")
+            self.control.speed_limit = limit
         elif name == "arm_mode":
-            if self.onboard:
-                raise ValueError("Upstream onboard interface is chassis-only. Disconnect it before using the bench arm preview.")
+            if self.onboard or self.link.connected:
+                raise ValueError("Disconnect the chassis transport before using the bench arm preview.")
             if not self.control.armed:
                 raise ValueError("Enable controls before selecting arm preview")
             self.control.arm_enabled = not self.control.arm_enabled
@@ -271,7 +305,7 @@ class Runtime:
             self.joint = data["joint"]
             self.control.jog = 0
         elif name == "connect":
-            self.disconnect()
+            self.begin_link_session()
             if data.get("mode") == "mock":
                 self.mock = MockRover()
                 self.link.connect("127.0.0.1", self.mock.port)
@@ -287,6 +321,40 @@ class Runtime:
                 self.event("Onboard operator connected; Claim onboard control before Enable")
             else:
                 raise ValueError("Choose local mock, UDP, OC loopback or ROS 2")
+        elif name == "find_rovers":
+            if self.control.armed or self.link.pending_arm or self.link.disarm_pending or (self.link.state or {}).get("enabled"):
+                raise ValueError("Disarm and confirm disabled outputs before discovery")
+            self.discovery.start(data.get("host", "255.255.255.255"), data.get("port",4210), data.get("local_ipv4","0.0.0.0"))
+            self.event("Read-only rover discovery started; no control ownership or motion requested")
+        elif name in ("connect_discovered", "connect_saved"):
+            if self.control.armed or self.link.pending_arm or self.link.disarm_pending or (self.link.state or {}).get("enabled"):
+                raise ValueError("Disarm before connecting another rover")
+            if name == "connect_saved":
+                row = next((r for r in self.profiles.profiles if r["id"]==data.get("id")),None)
+                if not row: raise ValueError("Choose a saved rover")
+                host, port, identity = row["host"], row["port"], row["device_id"]
+            else:
+                if self.discovery.state()["scanning"]: raise ValueError("Wait for discovery to finish")
+                row = next((r for r in self.discovery.candidates if f"{r['device_id']}@{r['host']}:{r['control_port']}"==data.get("id")),None)
+                if not row: raise ValueError("Choose a discovered rover")
+                if row["busy"]: raise ValueError("This rover reports another active owner or enabled outputs; no takeover attempted")
+                host, port, identity = row["host"], row["control_port"], row["device_id"]
+            self.begin_link_session()
+            self.link.connect(host,port,expected_device_id=identity)
+            self.event("Rover handshake requested; identity will be verified before Enable")
+        elif name == "save_rover":
+            if not self.link.ready(self.clock()) or not self.link.state:
+                raise ValueError("Connect and verify the rover before saving its profile")
+            if self.profile_task and not self.profile_task.done(): raise ValueError("Profile save still in progress")
+            row = self.profiles.validate({"name":data.get("name"), "host":self.link.target[0],
+                     "port":self.link.target[1], "device_id":self.link.state.get("device_id")})
+            async def save_profile():
+                try:
+                    await asyncio.to_thread(self.profiles.save,row)
+                    self.event("Rover profile saved; reconnect remains disarmed")
+                except (ValueError,OSError) as exc:
+                    self.event(str(exc),"error")
+            self.profile_task = asyncio.create_task(save_profile())
         elif name == "onboard_claim":
             if not self.onboard:
                 raise ValueError("Connect an onboard transport first")
@@ -360,6 +428,7 @@ class Runtime:
 
     def disconnect(self):
         self.disarm("Chassis disconnected")
+        self.control.speed_limit = min(self.control.speed_limit,.25)
         if self.link.fault_snapshot:
             self.last_fault_snapshot = self.link.fault_snapshot
         if self.onboard:
@@ -372,6 +441,14 @@ class Runtime:
         self.mock = None
         self.encoder_rates.invalidate()
         self.last_encoder_state = -1
+
+    def begin_link_session(self):
+        self.disconnect()
+        if self.last_fault_snapshot:
+            archived = {"archived_utc":datetime.now(timezone.utc).isoformat(),"snapshot":self.last_fault_snapshot}
+            self.fault_history.append(archived)
+            self.file_log.submit("fault_archived",archived)
+        self.last_fault_snapshot = None
 
     async def configure_camera(self, data):
         key, mode = data.get("camera"), data.get("mode")
@@ -409,11 +486,19 @@ class Runtime:
 
     def tick(self):
         now = self.clock()
+        self.control.speed_limit = min(self.control.speed_limit,self.pwm_limit_max())
         if self.owner and now - self.owner_seen > 5:
             self.disarm("Browser session expired")
             self.owner = None
         result = self.control.output(now)
+        enable_was_pending = self.link.pending_arm is not None
         self.link.tick(result, now)
+        if (enable_was_pending and not self.link.pending_arm and self.control.armed
+                and self.link.ready(now) and self.link.state["enabled"]):
+            self.control.reason = "Rover confirmed enabled; hold drive control to move"
+            self.event(self.control.reason)
+        if self.link.connected:
+            result = self.direct_control_output(now)
         self.video.tick()
         if self.onboard:
             self.onboard.source_label = self.input_mode
@@ -425,7 +510,7 @@ class Runtime:
             result = self.control.output(now)
         if self.link.fault and self.link.connected:
             self.control.disarm(self.link.fault)
-            result = self.control.output(now)
+            result = self.direct_control_output(now)
         if self.link.fault_snapshot:
             self.last_fault_snapshot = self.link.fault_snapshot
         if self.link.ready(now) and self.link.state:
@@ -474,6 +559,7 @@ class Runtime:
                                    "receipt_utc": datetime.now(timezone.utc).isoformat(),
                                    "receipt_monotonic_s": now, "input": dict(self.input), "input_seq": self.input_seq,
                                    "input_mode": self.input_mode,
+                                   "browser_input": dict(self.browser_input), "last_valid_input_seq": self.last_valid_input_seq,
                                    "input_throttle": self.input["throttle"], "input_steering": self.input["steering"],
                                    "mode": self.mode, "operator_input_age_s": now-self.last_input,
                                    "control": result, "rover_state": self.link.state,
@@ -500,16 +586,70 @@ class Runtime:
         # timestamp expires. Confirm non-motion command progress before offering
         # ARM; preserve the upstream 250/350 ms timeouts and require a new click.
         return (self.link.ready(self.clock()) and self.link.state is not None
+                and not self.link.pending_arm and not self.link.disarm_pending
+                and not self.link.state["enabled"] and not self.link.state["stopped"]
                 and self.link.sent_ops.get(self.link.state["seq"]) not in (None, "HELLO"))
+
+    def direct_control_output(self, now):
+        result = self.control.output(now)
+        if self.link.connected:
+            result["enable_requested"] = self.control.armed
+            confirmed = (self.link.ready(now) and not self.link.pending_arm
+                         and not self.link.disarm_pending and self.link.state["enabled"])
+            result["enabled"] = self.control.armed and confirmed
+            if not result["enabled"]:
+                result.update(left=0, right=0, legacy_drive_preview="0,0\n")
+            if self.link.pending_arm:
+                result["reason"] = "Enable requested; waiting for rover confirmation"
+        return result
+
+    def pwm_limit_max(self):
+        if self.onboard: return .25  # Pinned ROS/onboard policy remains unchanged.
+        return min(1.0,self.link.pwm_ceiling()/255) if self.link.connected else 1.0
 
     def onboard_preview(self, result):
         return {"session_id": self.video.session, "command_id": self.sequence, "enable_requested": result["enabled"],
                 "stop_requested": result["stop_latched"], "forward_mps": round((result["left"]+result["right"])/2, 4),
                 "turn_radps": round((result["right"]-result["left"])/.5, 4), "sent": False}
 
+    def connection_status(self, now):
+        blockers = []
+        if not self.owner: blockers.append("Acquire browser control")
+        remote = self.link.state or {}
+        if self.control.stopped or remote.get("stopped"): blockers.append("Reset STOP and wait for confirmation")
+        if self.link.fault: blockers.append(self.link.fault)
+        elif self.link.connected and not self.direct_enable_ready():
+            blockers.append("Wait for fresh command progress and confirmed disabled outputs")
+        oc = None
+        if self.onboard:
+            oc = self.onboard.state()
+            if not oc["fresh"] or not oc["owned"]: blockers.append("Wait for onboard feedback and Claim onboard control")
+            feedback=oc["state"] or {}
+            if not feedback.get("mcu_ready"): blockers.append("Wait for fresh disabled MCU feedback")
+            if oc["fault"] or feedback.get("mcu_stopped") or feedback.get("stop_latched"):
+                blockers.append("Reset onboard STOP and wait for confirmation")
+        if self.input_mode == "gamepad" and not self.input_available: blockers.append("Gamepad unavailable; check controller mapping")
+        if self.input_paused: blockers.append("Resume input; timeout test is paused")
+        sample = self.control.samples[self.control.source]
+        if now-sample.received >= self.control.timeout: blockers.append("Focus Drive & arm to provide fresh input")
+        elif sample.throttle or sample.steering or sample.deadman: blockers.append("Center sticks and release drive hold")
+        if self.input_mode == "rc-demo" and (self.link.connected or self.onboard): blockers.append("RC is preview-only; select virtual stick or gamepad")
+        reset_ready = (not self.link.connected or (self.link.ready(now) and not remote.get("enabled")
+                       and not self.link.pending_arm and not self.link.disarm_pending))
+        if oc:
+            feedback=oc["state"] or {}
+            reset_ready=oc["fresh"] and oc["owned"] and feedback.get("mcu_ready") and not feedback.get("mcu_enabled") and not feedback.get("supervisor_enabled")
+        return {"phase": self.link.phase(now) if not oc else "enabling" if self.control.armed and not (oc["state"] or {}).get("mcu_enabled") else "onboard",
+                "enable_blockers": blockers, "can_enable": not blockers and not self.control.armed,
+                "can_reset": bool(self.owner and reset_ready and (self.control.stopped or remote.get("stopped")
+                                  or (oc and (oc["fault"] or (oc["state"] or {}).get("mcu_stopped")
+                                              or (oc["state"] or {}).get("stop_latched"))))) }
+
     def state(self):
         now = self.clock()
-        result = self.control.output(now)
+        result = self.direct_control_output(now)
+        if self.link.connected and self.link.state:
+            result["stop_latched"] = result["stop_latched"] or self.link.state["stopped"]
         fresh = self.gps.fresh(now) and self.gps_mode != "disconnected" and not self.gps_error
         oc = self.onboard.state() if self.onboard else None
         if oc and oc["state"]:
@@ -521,14 +661,19 @@ class Runtime:
             "version": "0.2.0-NET5", "uptime_s": now-self.started, "sequence": self.sequence,
             "owner": self.owner, "clients": len(self.clients), "mode": self.mode,
             "input_mode": self.input_mode, "input": self.input, "input_age_s": now-self.last_input,
+            "input_available": self.input_available, "browser_input": self.browser_input,
+            "connection_status": self.connection_status(now), "rover_discovery": self.discovery.state(),
+            "saved_rovers": self.profiles.state() | {"saving": bool(self.profile_task and not self.profile_task.done())},
             "input_paused": self.input_paused, "speed_limit": self.control.speed_limit,
+            "speed_limit_max": self.pwm_limit_max(),
             "control": result, "arm_mode": self.control.arm_enabled, "joint": self.joint,
             "rover": {"connected": self.link.connected, "ready": self.link.ready(now),
                       "enable_ready": self.direct_enable_ready(),
-                      "pending_enable": self.link.pending_arm is not None, "fault": self.link.fault,
+                      "pending_enable": self.link.pending_arm is not None, "disarm_pending": self.link.disarm_pending, "fault": self.link.fault,
                       "state": self.link.state, "rtt_ms": self.link.rtt_ms, "rejected": self.link.rejected,
                       "age_s": now-self.link.last_rx, "mock_silent": self.mock.silent if self.mock else False},
             "diagnostics": self.link.diagnostics(now), "first_fault": self.last_fault_snapshot,
+            "fault_history_count": len(self.fault_history),
             "connection_summary": self.link.summary(now) if not oc else (oc["state"]["reason"] if oc["state"] else "Waiting for onboard state"),
             "connection_degraded": self.link.degraded,
             "mock_options": {"reply_delay_ms": self.mock.reply_delay*1000 if self.mock else 0,
@@ -575,6 +720,9 @@ class Runtime:
             await asyncio.gather(self.task, return_exceptions=True)
         self.disconnect()
         self.video.close()
+        await self.discovery.close()
+        if self.profile_task:
+            await asyncio.gather(self.profile_task,return_exceptions=True)
         await self.gps_input.close()
         tasks = [c["task"] for c in self.cameras.values() if c["task"]]
         for task in tasks:
